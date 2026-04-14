@@ -18,14 +18,15 @@ from opencood.data_utils.datasets import build_dataset
 from opencood.utils import eval_utils
 from opencood.visualization import vis_utils
 import matplotlib.pyplot as plt
-
+import numpy as np
+import sys
 
 def test_parser():
     parser = argparse.ArgumentParser(description="synthetic data generation")
     parser.add_argument('--model_dir', type=str, required=True,
                         help='Continued training path')
     parser.add_argument('--fusion_method', required=True, type=str,
-                        default='late',
+                        default='intermediate',
                         help='late, early or intermediate')
     parser.add_argument('--show_vis', action='store_true',
                         help='whether to show image visualization result')
@@ -52,7 +53,7 @@ def main():
                                                     'the results in single ' \
                                                     'image mode or video mode'
 
-    hypes = yaml_utils.load_yaml(None, opt)
+    hypes = yaml_utils.load_yaml(None, opt) #always loads "config.yaml" (can verify from 'opencood/hypes_yaml/yaml_utils.py')
 
     print('Dataset Building')
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
@@ -102,7 +103,14 @@ def main():
 
     for i, batch_data in tqdm(enumerate(data_loader)):
         # print(i)
-        with torch.no_grad():
+        # Add a stable frame identifier for downstream logging
+        if 'ego' in batch_data and isinstance(batch_data['ego'], dict):
+            batch_data['ego']['frame_id'] = [f"{i:04d}"]
+            batch_data['ego']['dataset_idx'] = [i]
+        else:
+            print('!!!!!!NO EGO KEY IN DICT!!!!')
+            sys.exit()
+        with torch.no_grad():            
             batch_data = train_utils.to_device(batch_data, device)
             if opt.fusion_method == 'late':
                 pred_box_tensor, pred_score, gt_box_tensor = \
@@ -122,6 +130,29 @@ def main():
             else:
                 raise NotImplementedError('Only early, late and intermediate'
                                           'fusion is supported.')
+
+            # ----------------------- shape test -----------------------------
+            if i == 0:
+                # record_len location depends on dataset; try both
+                if 'record_len' in batch_data:
+                    print("record_len:", batch_data['record_len'])
+                elif 'ego' in batch_data and 'record_len' in batch_data['ego']:
+                    print("record_len:", batch_data['ego']['record_len'])
+                lidar = batch_data['ego']['origin_lidar'][0]  # torch tensor, shape [N, 4] usually
+                print("\n[DEBUG shapes]")
+                print("pred_box_tensor:", type(pred_box_tensor), getattr(pred_box_tensor, "shape", None))
+                print("pred_score     :", type(pred_score), getattr(pred_score, "shape", None))
+                print("gt_box_tensor  :", type(gt_box_tensor), getattr(gt_box_tensor, "shape", None))
+                print("origin_lidar   :", type(lidar), getattr(lidar, "shape", None))
+
+                # If they are torch tensors, also print min/max sanity checks
+                if torch.is_tensor(pred_score) and pred_score.numel() > 0:
+                    print("pred_score min/max:", pred_score.min().item(), pred_score.max().item())
+                if torch.is_tensor(lidar) and lidar.numel() > 0:
+                    print("lidar xyz min:", lidar[:, :3].min(dim=0).values.tolist())
+                    print("lidar xyz max:", lidar[:, :3].max(dim=0).values.tolist())
+                print("[/DEBUG shapes]\n")
+            # ---------------------------------
 
             eval_utils.caluclate_tp_fp(pred_box_tensor,
                                        pred_score,
@@ -148,6 +179,23 @@ def main():
                                                        'origin_lidar'][0],
                                                    i,
                                                    npy_save_path)
+
+                # NEW: save confidence scores
+                score_path = os.path.join(npy_save_path, f"{i:04d}_score.npy")
+                np.save(score_path, pred_score.detach().cpu().numpy())
+
+                # NEW: save number of agents participating (record_len)
+                if 'record_len' in batch_data:
+                    rl = batch_data['record_len'].detach().cpu().numpy()  # shape (B,)
+                elif 'ego' in batch_data and 'record_len' in batch_data['ego']:
+                    rl = batch_data['ego']['record_len'].detach().cpu().numpy()
+                else:
+                    rl = None
+
+                if rl is not None:
+                    # batch_size=1, so rl[0] is #agents (incl ego)
+                    agent_path = os.path.join(npy_save_path, f"{i:04d}_agents.npy")
+                    np.save(agent_path, rl)
 
             if opt.show_vis or opt.save_vis:
                 vis_save_path = ''
@@ -196,7 +244,7 @@ def main():
                 vis.poll_events()
                 vis.update_renderer()
                 time.sleep(0.001)
-
+        #break
     eval_utils.eval_final_results(result_stat,
                                   opt.model_dir,
                                   opt.global_sort_detections)
@@ -206,3 +254,14 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+"""
+Usage:
+    python opencood/tools/inference.py --model_dir opencood/pretrained/v2x-vit  --fusion_method intermediate --save_npy
+    python opencood/tools/inference.py --model_dir opencood/pretrained/cobevt_lidar  --fusion_method intermediate --save_npy
+    python opencood/tools/inference.py --model_dir opencood/pretrained/feaco  --fusion_method intermediate --save_npy
+
+Note: might not work in hopper architectures
+"""
+
+
