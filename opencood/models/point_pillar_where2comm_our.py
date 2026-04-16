@@ -161,6 +161,18 @@ class PointPillarWhere2commOur(nn.Module):
             'cov_tx_var',
             'cov_ty_var',
             'cov_trace',
+            'cov_trace_clipped',
+            'uncertainty_score',
+            'uncertainty_weight',
+            'gate_mode',
+            'gate_threshold',
+            'gate_decision',
+            'gate_applied_weight',
+            'gate_skipped',
+            'status_gate_enabled',
+            'status_gate_decision',
+            'ok_tail_skip_enabled',
+            'ok_tail_skip_threshold',
             'cov_condition_number',
             'sigma2_hat',
             'num_centroids0_raw',
@@ -176,6 +188,30 @@ class PointPillarWhere2commOur(nn.Module):
             'mask_iou_after_warp',
             'status'
         ]
+
+        # -- uncertainty weight settings --
+        self.enable_uncertainty_weighting = args.get('enable_uncertainty_weighting', False)
+        self.uncertainty_weight_alpha = args.get('uncertainty_weight_alpha', 0.5)
+        self.uncertainty_weight_trace_clip = args.get('uncertainty_weight_trace_clip', 50.0)
+        self.uncertainty_weight_min = args.get('uncertainty_weight_min', 0.2)
+
+        # -- hard skip/binary weight settings --
+        self.enable_uncertainty_gating = args.get('enable_uncertainty_gating', False)
+        self.uncertainty_gate_mode = args.get('uncertainty_gate_mode', 'hard_skip')
+        # supported:
+        #   'hard_skip'       -> skip collaborator if trace > threshold
+        #   'binary_weight'   -> use low weight if trace > threshold else 1.0
+
+        self.uncertainty_gate_threshold = args.get('uncertainty_gate_threshold', 10.0)
+        self.uncertainty_gate_low_weight = args.get('uncertainty_gate_low_weight', 0.5)
+
+        # -- status-aware gating settings --
+        self.enable_status_based_skip = args.get('enable_status_based_skip', False)
+
+        # Optional stronger version:
+        # if True, also skip very high-uncertainty rows even when status == 'ok'
+        self.enable_ok_tail_skip = args.get('enable_ok_tail_skip', False)
+        self.ok_tail_skip_threshold = args.get('ok_tail_skip_threshold', 100.0)
 
     def backbone_fix(self):
         """
@@ -207,6 +243,78 @@ class PointPillarWhere2commOur(nn.Module):
         split_x = torch.tensor_split(x, cum_sum_len[:-1].cpu())
         return split_x
 
+    def covariance_to_weight(self, Sigma_params):
+        """
+        Convert 3x3 covariance over [theta, tx, ty] into a scalar confidence weight.
+        Larger covariance -> smaller weight.
+        """
+        cov_trace = float(np.trace(Sigma_params))
+        cov_trace = max(cov_trace, 0.0)
+        cov_trace_clipped = min(cov_trace, self.uncertainty_weight_trace_clip)
+
+        uncertainty_score = np.log1p(cov_trace_clipped)
+        weight = np.exp(-self.uncertainty_weight_alpha * uncertainty_score)
+
+        weight = float(np.clip(weight, self.uncertainty_weight_min, 1.0))
+        return weight, cov_trace, uncertainty_score
+    
+    def covariance_to_gate_decision(self, Sigma_params):
+        """
+        Convert covariance into a gate decision for collaborator handling.
+
+        Returns:
+            applied_weight: float
+            skip_collaborator: bool
+            gate_decision: str
+            cov_trace: float
+        """
+        cov_trace = float(np.trace(Sigma_params))
+        cov_trace = max(cov_trace, 0.0)
+
+        threshold = float(self.uncertainty_gate_threshold)
+
+        if self.uncertainty_gate_mode == 'hard_skip':
+            if cov_trace > threshold:
+                return 0.0, True, 'skip', cov_trace
+            else:
+                return 1.0, False, 'keep', cov_trace
+
+        elif self.uncertainty_gate_mode == 'binary_weight':
+            if cov_trace > threshold:
+                low_w = float(self.uncertainty_gate_low_weight)
+                low_w = float(np.clip(low_w, 0.0, 1.0))
+                return low_w, False, 'downweight', cov_trace
+            else:
+                return 1.0, False, 'keep', cov_trace
+
+        else:
+            # fallback: no gate
+            return 1.0, False, 'none', cov_trace
+
+    def status_to_gate_decision(self, stats, Sigma_params):
+        """
+        Status-aware collaborator gating.
+
+        Returns:
+            applied_weight: float
+            skip_collaborator: bool
+            status_gate_decision: str
+        """
+        status = str(stats.get('status', 'unknown'))
+
+        # Base rule: skip all non-ok cases
+        if status != 'ok':
+            return 0.0, True, f'skip_status_{status}'
+
+        # Optional stronger rule: skip extreme ok-tail cases too
+        if self.enable_ok_tail_skip:
+            cov_trace = float(np.trace(Sigma_params))
+            cov_trace = max(cov_trace, 0.0)
+            if cov_trace > float(self.ok_tail_skip_threshold):
+                return 0.0, True, 'skip_ok_tail'
+
+        return 1.0, False, 'keep_status_ok'
+
     def forward(self, data_dict):
 
         voxel_features = data_dict['processed_lidar']['voxel_features']
@@ -214,19 +322,6 @@ class PointPillarWhere2commOur(nn.Module):
         voxel_num_points = data_dict['processed_lidar']['voxel_num_points']
         
         record_len = data_dict['record_len']
-        if not hasattr(self, '_printed_data_dict_keys'):
-            self._printed_data_dict_keys = True
-            print("\n[DEBUG] data_dict keys:")
-            for k in data_dict.keys():
-                v = data_dict[k]
-                if isinstance(v, dict):
-                    print(f"  {k}: dict with keys {list(v.keys())}")
-                else:
-                    try:
-                        shape = tuple(v.shape)
-                    except Exception:
-                        shape = None
-                    print(f"  {k}: type={type(v)}, shape={shape}, value_preview={str(v)[:200]}")
 
         pairwise_t_matrix = data_dict['pairwise_t_matrix']
 
@@ -285,7 +380,7 @@ class PointPillarWhere2commOur(nn.Module):
                 #t_matrix = trans_tx(t_matrix,mask_h,mask_w)
                 # ----------------------------------
 
-                # ------ NOTE: ADDED BLOCK ------ 
+                # ------ NOTE: ADDED BLOCK (LEVEL 2 - COVARIANCE VALIDATION) ------ 
                 mu_affine, mu_params, Sigma_params, stats = get_transform_distribution(ego_mask, other_mask)
                 # if j == 1 and i == 0:
                 #     print("mu_params:", mu_params)
@@ -294,7 +389,45 @@ class PointPillarWhere2commOur(nn.Module):
                 t_matrix = trans_tx(mu_affine, mask_h, mask_w) # NOTE: only mean transform is still used  
                 t_matrix = torch.from_numpy(t_matrix).to(features_2d.device).unsqueeze(0)
                 # ----------------------------------
-                
+
+                # ------ NOTE: ADDED BLOCK (LEVEL 2 - UNCERTAINTY WEIGHTING) ------ 
+                cov_trace_raw = float(np.trace(Sigma_params))
+                cov_trace_raw = max(cov_trace_raw, 0.0)
+                cov_trace_clipped = min(cov_trace_raw, self.uncertainty_weight_trace_clip)
+                uncertainty_score = np.log1p(cov_trace_clipped)
+
+                # default behavior: no extra suppression
+                uncertainty_weight = 1.0
+                gate_applied_weight = 1.0
+                gate_skipped = False
+                gate_decision = 'none'
+                status_gate_decision = 'disabled'
+
+                # old continuous weighting mode
+                if self.enable_uncertainty_weighting:
+                    uncertainty_weight, _, uncertainty_score = self.covariance_to_weight(Sigma_params)
+                    gate_applied_weight = uncertainty_weight
+                    gate_decision = 'continuous_weight'
+
+                # threshold-based gating mode
+                if self.enable_uncertainty_gating:
+                    gate_applied_weight, gate_skipped, gate_decision, _ = self.covariance_to_gate_decision(Sigma_params)
+
+                # status-based gating mode
+                if self.enable_status_based_skip:
+                    status_weight, status_skip, status_gate_decision = self.status_to_gate_decision(stats, Sigma_params)
+
+                    # status-based skip takes precedence over threshold-based gating
+                    if status_skip:
+                        gate_applied_weight = status_weight
+                        gate_skipped = True
+                        gate_decision = status_gate_decision
+                    else:
+                        # keep current gate settings if status says keep
+                        # but mark the status-based decision in logs
+                        pass
+                # ----------------------------------
+
                 # Logging block: does not change model behavior
                 if self.enable_cov_logging:
                     if self._cov_log_pair_counter % self.cov_log_every_n_pairs == 0:
@@ -318,6 +451,18 @@ class PointPillarWhere2commOur(nn.Module):
                             'cov_tx_var': float(Sigma_params[1, 1]),
                             'cov_ty_var': float(Sigma_params[2, 2]),
                             'cov_trace': float(np.trace(Sigma_params)),
+                            'cov_trace_clipped': float(cov_trace_clipped),
+                            'uncertainty_score': float(uncertainty_score),
+                            'uncertainty_weight': float(uncertainty_weight),
+                            'gate_mode': str(self.uncertainty_gate_mode) if self.enable_uncertainty_gating else 'disabled',
+                            'gate_threshold': float(self.uncertainty_gate_threshold) if self.enable_uncertainty_gating else None,
+                            'gate_decision': str(gate_decision),
+                            'gate_applied_weight': float(gate_applied_weight),
+                            'gate_skipped': int(gate_skipped),
+                            'status_gate_enabled': int(self.enable_status_based_skip),
+                            'status_gate_decision': str(status_gate_decision),
+                            'ok_tail_skip_enabled': int(self.enable_ok_tail_skip),
+                            'ok_tail_skip_threshold': float(self.ok_tail_skip_threshold) if self.enable_ok_tail_skip else None,
                             'cov_condition_number': float(stats['cov_condition_number']) if stats.get('cov_condition_number') is not None else None,
                             'sigma2_hat': float(stats['sigma2_hat']) if stats.get('sigma2_hat') is not None else None,
                             'num_centroids0_raw': int(stats.get('num_centroids0_raw', 0)),
@@ -341,6 +486,23 @@ class PointPillarWhere2commOur(nn.Module):
                     self._cov_log_pair_counter += 1
 
                 features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
+                
+                # -- NOTE: ADDED FOR LEVEL 2 UNCERTAINTY WEIGHTING --
+                 # continuous weighting (old experiment)
+                if self.enable_uncertainty_weighting:
+                    features_2d = features_2d * uncertainty_weight
+
+                # threshold-based gating
+                if self.enable_uncertainty_gating:
+                    if gate_skipped:
+                        continue
+                    features_2d = features_2d * gate_applied_weight
+
+                # status-based skip can also trigger even if threshold-gating is disabled
+                if self.enable_status_based_skip and gate_skipped:
+                    continue
+                # --
+
                 feature_list.append(features_2d)
 
 
