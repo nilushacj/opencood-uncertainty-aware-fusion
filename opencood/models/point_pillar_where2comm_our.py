@@ -21,6 +21,7 @@ from opencood.models.sub_modules.positioning_error_correction_our import get_tra
 import torch
 import os 
 import csv
+import math
 
 def extract_frame_identifier_from_data_dict(data_dict, batch_index=0):
     # Preferred field injected from inference.py
@@ -169,10 +170,19 @@ class PointPillarWhere2commOur(nn.Module):
             'gate_decision',
             'gate_applied_weight',
             'gate_skipped',
+            'fused_into_feature_list',
             'status_gate_enabled',
             'status_gate_decision',
             'ok_tail_skip_enabled',
             'ok_tail_skip_threshold',
+            'blur_enabled',
+            'blur_applied',
+            'blur_sigma',
+            'blur_kernel_size',
+            'ok_tail_vertical_blur_enabled',
+            'ok_blur_threshold',
+            'vertical_blur_decision',
+            'vertical_blur_used_ty_only',
             'cov_condition_number',
             'sigma2_hat',
             'num_centroids0_raw',
@@ -212,6 +222,32 @@ class PointPillarWhere2commOur(nn.Module):
         # if True, also skip very high-uncertainty rows even when status == 'ok'
         self.enable_ok_tail_skip = args.get('enable_ok_tail_skip', False)
         self.ok_tail_skip_threshold = args.get('ok_tail_skip_threshold', 100.0)
+
+        # -- uncertainty-aware blur settings --
+        self.enable_uncertainty_blur = args.get('enable_uncertainty_blur', False)
+
+        # blur is applied only when status == 'ok'
+        self.blur_use_only_ok = args.get('blur_use_only_ok', True)
+
+        # scale factor converting covariance-derived sigma to blur sigma in pixels
+        self.blur_sigma_scale = args.get('blur_sigma_scale', 1.0)
+
+        # lower / upper clamp for blur sigma
+        self.blur_sigma_min = args.get('blur_sigma_min', 0.0)
+        self.blur_sigma_max = args.get('blur_sigma_max', 2.5)
+
+        # if blur sigma is below this, skip blurring
+        self.blur_apply_threshold = args.get('blur_apply_threshold', 0.15)
+
+        # -- tail-only directional blur settings --
+        self.enable_ok_tail_vertical_blur = args.get('enable_ok_tail_vertical_blur', False)
+
+        # only apply blur to ok rows with cov_trace above this threshold
+        self.ok_blur_threshold = args.get('ok_blur_threshold', 9.61)
+
+        # use ty variance only for first directional version
+        self.vertical_blur_use_ty_only = args.get('vertical_blur_use_ty_only', True)
+
 
     def backbone_fix(self):
         """
@@ -315,6 +351,128 @@ class PointPillarWhere2commOur(nn.Module):
 
         return 1.0, False, 'keep_status_ok'
 
+    def covariance_to_vertical_blur_sigma(self, Sigma_params):
+        """
+        Convert covariance over [theta, tx, ty] into a vertical-only blur sigma.
+        First directional version: use ty uncertainty only.
+        """
+        if self.vertical_blur_use_ty_only:
+            ty_var = float(Sigma_params[2, 2])
+            ty_var = max(ty_var, 0.0)
+            sigma = math.sqrt(ty_var)
+        else:
+            tx_var = float(Sigma_params[1, 1])
+            ty_var = float(Sigma_params[2, 2])
+            tx_var = max(tx_var, 0.0)
+            ty_var = max(ty_var, 0.0)
+            sigma = math.sqrt(0.5 * (tx_var + ty_var))
+
+        sigma = sigma * self.blur_sigma_scale
+        sigma = float(np.clip(sigma, self.blur_sigma_min, self.blur_sigma_max))
+        return sigma
+    
+    def covariance_to_blur_sigma(self, Sigma_params):
+        """
+        Convert covariance over [theta, tx, ty] into a scalar blur sigma.
+        First version: use translation uncertainty only.
+        """
+        tx_var = float(Sigma_params[1, 1])
+        ty_var = float(Sigma_params[2, 2])
+
+        tx_var = max(tx_var, 0.0)
+        ty_var = max(ty_var, 0.0)
+
+        sigma = math.sqrt(0.5 * (tx_var + ty_var))
+        sigma = sigma * self.blur_sigma_scale
+        sigma = float(np.clip(sigma, self.blur_sigma_min, self.blur_sigma_max))
+        return sigma
+
+
+    def gaussian_kernel_2d(self, sigma, device, dtype):
+        """
+        Create a 2D Gaussian kernel for depthwise convolution.
+        """
+        if sigma <= 0:
+            kernel = torch.tensor([[1.0]], device=device, dtype=dtype)
+            return kernel, 1
+
+        radius = max(1, int(math.ceil(3.0 * sigma)))
+        ksize = 2 * radius + 1
+
+        coords = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
+        yy, xx = torch.meshgrid(coords, coords, indexing='ij')
+        kernel = torch.exp(-(xx ** 2 + yy ** 2) / (2 * sigma ** 2))
+        kernel = kernel / kernel.sum()
+
+        return kernel, ksize
+
+    def gaussian_kernel_vertical_1d(self, sigma, device, dtype):
+        """
+        Create a vertical 1D Gaussian kernel of shape [ksize, 1].
+        """
+        if sigma <= 0:
+            kernel = torch.tensor([[1.0]], device=device, dtype=dtype)
+            return kernel, 1
+
+        radius = max(1, int(math.ceil(3.0 * sigma)))
+        ksize = 2 * radius + 1
+
+        coords = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
+        kernel = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+        kernel = kernel / kernel.sum()
+        kernel = kernel.view(ksize, 1)
+
+        return kernel, ksize
+
+    def apply_gaussian_blur_depthwise(self, x, sigma):
+        """
+        x: [B, C, H, W]
+        applies same Gaussian kernel to each channel independently
+        """
+        if sigma < self.blur_apply_threshold:
+            return x, False, 1
+
+        kernel_2d, ksize = self.gaussian_kernel_2d(sigma, x.device, x.dtype)
+        kernel_2d = kernel_2d.view(1, 1, ksize, ksize)
+
+        C = x.shape[1]
+        weight = kernel_2d.repeat(C, 1, 1, 1)
+
+        x_blur = F.conv2d(
+            x,
+            weight,
+            bias=None,
+            stride=1,
+            padding=ksize // 2,
+            groups=C
+        )
+        return x_blur, True, ksize
+
+ 
+    def apply_vertical_gaussian_blur_depthwise(self, x, sigma):
+        """
+        x: [B, C, H, W]
+        Applies a vertical-only Gaussian blur to each channel independently.
+        """
+        if sigma < self.blur_apply_threshold:
+            return x, False, 1
+
+        kernel_1d, ksize = self.gaussian_kernel_vertical_1d(sigma, x.device, x.dtype)
+        kernel_2d = kernel_1d.view(1, 1, ksize, 1)
+
+        C = x.shape[1]
+        weight = kernel_2d.repeat(C, 1, 1, 1)
+
+        x_blur = F.conv2d(
+            x,
+            weight,
+            bias=None,
+            stride=1,
+            padding=(ksize // 2, 0),
+            groups=C
+        )
+        return x_blur, True, ksize
+
     def forward(self, data_dict):
 
         voxel_features = data_dict['processed_lidar']['voxel_features']
@@ -403,13 +561,13 @@ class PointPillarWhere2commOur(nn.Module):
                 gate_decision = 'none'
                 status_gate_decision = 'disabled'
 
-                # old continuous weighting mode
+                # REMOVE: continuous weighting mode
                 if self.enable_uncertainty_weighting:
                     uncertainty_weight, _, uncertainty_score = self.covariance_to_weight(Sigma_params)
                     gate_applied_weight = uncertainty_weight
                     gate_decision = 'continuous_weight'
 
-                # threshold-based gating mode
+                # REMOVE: threshold-based gating mode
                 if self.enable_uncertainty_gating:
                     gate_applied_weight, gate_skipped, gate_decision, _ = self.covariance_to_gate_decision(Sigma_params)
 
@@ -426,15 +584,71 @@ class PointPillarWhere2commOur(nn.Module):
                         # keep current gate settings if status says keep
                         # but mark the status-based decision in logs
                         pass
-                # ----------------------------------
+                
+                # ------ Uncertainty blur ------
+                blur_sigma = 0.0
+                blur_applied = False
+                blur_kernel_size = 1
+                vertical_blur_decision = 'disabled'
 
-                # Logging block: does not change model behavior
+                status_str = str(stats.get('status', 'unknown'))
+                blur_is_allowed = False
+
+                # New targeted rule:
+                # only blur ok rows in the high-uncertainty tail
+                if self.enable_ok_tail_vertical_blur:
+                    if status_str == 'ok':
+                        if cov_trace_raw > float(self.ok_blur_threshold):
+                            blur_is_allowed = True
+                            vertical_blur_decision = 'apply_ok_tail_vertical_blur'
+                        else:
+                            vertical_blur_decision = 'skip_below_ok_blur_threshold'
+                    else:
+                        vertical_blur_decision = f'skip_status_{status_str}'
+                else:
+                    vertical_blur_decision = 'disabled'
+
+                if blur_is_allowed:
+                    blur_sigma = self.covariance_to_vertical_blur_sigma(Sigma_params)
+
+                # -------------------------------------------------------------
+                
+                # -------------------------------------------------------------
+                # 1) Warp collaborator feature map
+                # -------------------------------------------------------------
+                features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
+
+                # old continuous weighting (if enabled)
+                if self.enable_uncertainty_weighting:
+                    features_2d = features_2d * uncertainty_weight
+
+                # threshold-based weighting (only apply weight here; do NOT continue yet)
+                if self.enable_uncertainty_gating and (not gate_skipped):
+                    features_2d = features_2d * gate_applied_weight
+
+                # uncertainty-aware blur for valid / kept collaborator features
+                # Do not blur rows that are going to be skipped
+                # if self.enable_uncertainty_blur and blur_is_allowed and (not gate_skipped):
+                #     features_2d, blur_applied, blur_kernel_size = self.apply_gaussian_blur_depthwise(
+                #         features_2d, blur_sigma
+                #     )
+                if self.enable_ok_tail_vertical_blur and blur_is_allowed and (not gate_skipped):
+                    features_2d, blur_applied, blur_kernel_size = self.apply_vertical_gaussian_blur_depthwise(
+                        features_2d, blur_sigma
+                    )
+                # -------------------------------------------------------------
+                # 2) Logging block: log ALL collaborators, including skipped ones
+                # -------------------------------------------------------------
                 if self.enable_cov_logging:
                     if self._cov_log_pair_counter % self.cov_log_every_n_pairs == 0:
                         other_mask_torch = torch.from_numpy(other_mask.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(features_2d.device)
                         warped_mask = warp_affine_simple(other_mask_torch, t_matrix, (mask_h, mask_w)).squeeze().detach().cpu().numpy()
 
-                        mask_iou_after_warp = compute_mask_iou(ego_mask, warped_mask, threshold=0.5)
+                        mask_iou_after_warp = compute_mask_iou(
+                            ego_mask,
+                            warped_mask,
+                            threshold=0.5
+                        )
 
                         row = {
                             'sample_idx': int(self._cov_log_sample_counter),
@@ -459,10 +673,19 @@ class PointPillarWhere2commOur(nn.Module):
                             'gate_decision': str(gate_decision),
                             'gate_applied_weight': float(gate_applied_weight),
                             'gate_skipped': int(gate_skipped),
+                            'fused_into_feature_list': int(not gate_skipped),
                             'status_gate_enabled': int(self.enable_status_based_skip),
                             'status_gate_decision': str(status_gate_decision),
                             'ok_tail_skip_enabled': int(self.enable_ok_tail_skip),
                             'ok_tail_skip_threshold': float(self.ok_tail_skip_threshold) if self.enable_ok_tail_skip else None,
+                            'blur_enabled': int(self.enable_uncertainty_blur or self.enable_ok_tail_vertical_blur),
+                            'blur_applied': int(blur_applied),
+                            'blur_sigma': float(blur_sigma),
+                            'blur_kernel_size': int(blur_kernel_size),
+                            'ok_tail_vertical_blur_enabled': int(self.enable_ok_tail_vertical_blur),
+                            'ok_blur_threshold': float(self.ok_blur_threshold) if self.enable_ok_tail_vertical_blur else None,
+                            'vertical_blur_decision': str(vertical_blur_decision),
+                            'vertical_blur_used_ty_only': int(self.vertical_blur_use_ty_only),
                             'cov_condition_number': float(stats['cov_condition_number']) if stats.get('cov_condition_number') is not None else None,
                             'sigma2_hat': float(stats['sigma2_hat']) if stats.get('sigma2_hat') is not None else None,
                             'num_centroids0_raw': int(stats.get('num_centroids0_raw', 0)),
@@ -485,23 +708,11 @@ class PointPillarWhere2commOur(nn.Module):
 
                     self._cov_log_pair_counter += 1
 
-                features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
-                
-                # -- NOTE: ADDED FOR LEVEL 2 UNCERTAINTY WEIGHTING --
-                 # continuous weighting (old experiment)
-                if self.enable_uncertainty_weighting:
-                    features_2d = features_2d * uncertainty_weight
-
-                # threshold-based gating
-                if self.enable_uncertainty_gating:
-                    if gate_skipped:
-                        continue
-                    features_2d = features_2d * gate_applied_weight
-
-                # status-based skip can also trigger even if threshold-gating is disabled
-                if self.enable_status_based_skip and gate_skipped:
+                # -------------------------------------------------------------
+                # 3) Now apply skip logic AFTER logging
+                # -------------------------------------------------------------
+                if gate_skipped:
                     continue
-                # --
 
                 feature_list.append(features_2d)
 
