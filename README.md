@@ -73,6 +73,76 @@ Please refer to [data introduction](https://opencood.readthedocs.io/en/latest/md
 and [installation](https://opencood.readthedocs.io/en/latest/md_files/installation.html) guide to prepare
 data and install OpenCOOD. To see more details of OPV2V data, please check [our website.](https://mobility-lab.seas.ucla.edu/opv2v/)
 
+## Installation details (NJ)
+
+1. Dependency Installation:
+```bash
+git clone https://github.com/DerrickXuNu/OpenCOOD.git
+cd OpenCOOD
+conda env create -f environment.yml
+conda activate opencood
+```
+
+2. Install a Python-3.7-compatible scikit-image (use conda-forge so you get a prebuilt binary):
+```bash
+mamba install -c conda-forge scikit-image==0.19.3
+```
+
+3. Install OpenCOOD in editable mode using pip (replacement for *python setup.py develop*):
+```bash
+python -m pip install -e . --no-deps
+```
+
+4. PyTorch installation:
+```bash
+pip install --index-url https://download.pytorch.org/whl/cu126 torch torchvision torchaudio
+```
+
+sanity check for versions match:
+```bash
+python -c "import torch; print(torch.__version__); print(torch.version.cuda)"
+```
+
+5. Spconv installation (ensure you install the matching wheel):
+```bash
+pip install cumm-cu117 spconv-cu117
+```
+
+sanity check:
+```bash
+python -c "import spconv.pytorch as spconv; import cumm; print('spconv ok', spconv.__version__)"
+```
+
+6. Compile bbx IoU CUDA extension:
+```bash
+python opencood/utils/setup.py build_ext --inplace
+```
+
+7. To fix the missing TIFF runtime in the environment:
+```bash
+conda install -c conda-forge "libtiff=4.*" "pillow<10"
+```
+
+8. To still fix the TIFF version issue:
+```bash
+python -m pip install "Pillow==9.5.0"
+```
+
+9. Fixed dependency issues:
+```bash
+conda install -c conda-forge cmake
+pip install "easydict~=1.9"
+pip install "numba==0.49.0"
+pip install --upgrade --force-reinstall "shapely==2.0.0"
+pip install --upgrade --force-reinstall \
+  "matplotlib~=3.3.3" \
+  "opencv-python~=4.5.1.48" \
+  "scipy~=1.5.4"
+pip uninstall -y einops
+pip install "einops==0.6.1"
+```
+
+
 ## Quick Start
 ### Data sequence visualization
 To quickly visualize the LiDAR stream in the OPV2V dataset, first modify the `validate_dir`
