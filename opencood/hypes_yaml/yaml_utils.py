@@ -20,6 +20,9 @@ def load_yaml(file, opt=None):
     file : string
         yaml file path.
 
+    filename : string
+        yaml file name.
+
     opt : argparser
          Argparser.
     Returns

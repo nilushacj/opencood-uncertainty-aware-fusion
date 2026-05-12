@@ -183,14 +183,6 @@ class PointPillarWhere2commOur(nn.Module):
             'ok_blur_threshold',
             'vertical_blur_decision',
             'vertical_blur_used_ty_only',
-            'mc_warp_enabled',
-            'mc_warp_applied',
-            'mc_trace_threshold',
-            'mc_num_samples',
-            'mc_use_translation_only',
-            'mc_mean_sampled_theta_abs_dev',
-            'mc_mean_sampled_tx_abs_dev',
-            'mc_mean_sampled_ty_abs_dev',
             'cov_condition_number',
             'sigma2_hat',
             'num_centroids0_raw',
@@ -255,27 +247,6 @@ class PointPillarWhere2commOur(nn.Module):
 
         # use ty variance only for first directional version
         self.vertical_blur_use_ty_only = args.get('vertical_blur_use_ty_only', True)
-
-        # -- tail-only Monte Carlo warp settings --
-        self.enable_tail_mc_warp = args.get('enable_tail_mc_warp', False)
-
-        # apply MC warp only to ok rows with cov_trace above this threshold
-        self.mc_trace_threshold = args.get('mc_trace_threshold', 9.800544452667232)
-
-        # number of transform samples, including the mean sample only implicitly via sampling
-        self.mc_num_samples = args.get('mc_num_samples', 3)
-
-        # for reproducibility if desired; set None to use default randomness
-        self.mc_random_seed = args.get('mc_random_seed', None)
-
-        # if True, only use translation covariance (tx, ty) and keep theta fixed at mean
-        self.mc_use_translation_only = args.get('mc_use_translation_only', False)
-
-        # optional safety clamp on sampled theta deviation (radians)
-        self.mc_theta_clip = args.get('mc_theta_clip', 0.15)
-
-        # optional safety clamp on sampled tx/ty deviation (feature-map pixels)
-        self.mc_translation_clip = args.get('mc_translation_clip', 3.0)
 
 
     def backbone_fix(self):
@@ -502,109 +473,6 @@ class PointPillarWhere2commOur(nn.Module):
         )
         return x_blur, True, ksize
 
-    def params_to_affine(self, theta, tx, ty):
-        """
-        Convert [theta, tx, ty] to 2x3 affine matrix in pixel coordinates.
-        """
-        c = math.cos(theta)
-        s = math.sin(theta)
-        return np.float32([
-            [c, -s, tx],
-            [s,  c, ty]
-        ])
-    
-    def sample_transform_params(self, mu_params, Sigma_params):
-        """
-        Sample [theta, tx, ty] from N(mu, Sigma), with optional safety restrictions.
-        Returns sampled_params, and absolute deviations from mean.
-        """
-        mu = np.asarray(mu_params, dtype=np.float64).reshape(3)
-        Sigma = np.asarray(Sigma_params, dtype=np.float64).reshape(3, 3)
-
-        # Optional translation-only mode
-        if self.mc_use_translation_only:
-            Sigma_mod = np.zeros((3, 3), dtype=np.float64)
-            Sigma_mod[1:, 1:] = Sigma[1:, 1:]
-            sample = np.random.multivariate_normal(mu, Sigma_mod)
-            sample[0] = mu[0]
-        else:
-            sample = np.random.multivariate_normal(mu, Sigma)
-
-        # Safety clipping relative to the mean
-        dtheta = sample[0] - mu[0]
-        dtx = sample[1] - mu[1]
-        dty = sample[2] - mu[2]
-
-        dtheta = float(np.clip(dtheta, -self.mc_theta_clip, self.mc_theta_clip))
-        dtx = float(np.clip(dtx, -self.mc_translation_clip, self.mc_translation_clip))
-        dty = float(np.clip(dty, -self.mc_translation_clip, self.mc_translation_clip))
-
-        sample[0] = mu[0] + dtheta
-        sample[1] = mu[1] + dtx
-        sample[2] = mu[2] + dty
-
-        return sample.astype(np.float32), abs(dtheta), abs(dtx), abs(dty)        
-    
-    def monte_carlo_warp_features(self, features_2d, mu_params, Sigma_params, mask_h, mask_w, H, W):
-        """
-        Apply Monte Carlo warping:
-          - sample K transforms from N(mu, Sigma)
-          - convert each to normalized affine via trans_tx
-          - warp features
-          - average warped features
-
-        Input:
-            features_2d: [C, H, W]
-        Output:
-            warped_mean: [1, C, H, W]
-            mc_applied: bool
-            stats_dict: dict
-        """
-        K = int(self.mc_num_samples)
-
-        if K <= 1:
-            # fall back to deterministic mean warp
-            mu_affine = self.params_to_affine(float(mu_params[0]), float(mu_params[1]), float(mu_params[2]))
-            t_matrix = trans_tx(mu_affine, mask_h, mask_w)
-            t_matrix = torch.from_numpy(t_matrix).to(features_2d.device).unsqueeze(0)
-            warped = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
-            return warped, False, {
-                'mc_mean_sampled_theta_abs_dev': 0.0,
-                'mc_mean_sampled_tx_abs_dev': 0.0,
-                'mc_mean_sampled_ty_abs_dev': 0.0,
-            }
-
-        warped_list = []
-        theta_abs_devs = []
-        tx_abs_devs = []
-        ty_abs_devs = []
-
-        for _ in range(K):
-            sampled_params, dtheta_abs, dtx_abs, dty_abs = self.sample_transform_params(mu_params, Sigma_params)
-
-            sampled_affine = self.params_to_affine(
-                float(sampled_params[0]),
-                float(sampled_params[1]),
-                float(sampled_params[2]),
-            )
-            sampled_t_matrix = trans_tx(sampled_affine, mask_h, mask_w)
-            sampled_t_matrix = torch.from_numpy(sampled_t_matrix).to(features_2d.device).unsqueeze(0)
-
-            warped_k = warp_affine_simple(features_2d.unsqueeze(0), sampled_t_matrix, (H, W))
-            warped_list.append(warped_k)
-
-            theta_abs_devs.append(dtheta_abs)
-            tx_abs_devs.append(dtx_abs)
-            ty_abs_devs.append(dty_abs)
-
-        warped_mean = torch.mean(torch.stack(warped_list, dim=0), dim=0)
-
-        return warped_mean, True, {
-            'mc_mean_sampled_theta_abs_dev': float(np.mean(theta_abs_devs)) if theta_abs_devs else 0.0,
-            'mc_mean_sampled_tx_abs_dev': float(np.mean(tx_abs_devs)) if tx_abs_devs else 0.0,
-            'mc_mean_sampled_ty_abs_dev': float(np.mean(ty_abs_devs)) if ty_abs_devs else 0.0,
-        }    
-    
     def forward(self, data_dict):
 
         voxel_features = data_dict['processed_lidar']['voxel_features']
@@ -642,11 +510,6 @@ class PointPillarWhere2commOur(nn.Module):
         
         split_spatial_features_2d = self.regroup(batch_dict['spatial_features'], record_len) 
         feature_list = []
-
-        # for monte carlo
-        if self.enable_tail_mc_warp and self.mc_random_seed is not None:
-            np.random.seed(int(self.mc_random_seed))
-        ###
 
         for i in range(len(communication_masks)):
             mask = communication_masks[i].squeeze(1).to('cpu').numpy()
@@ -691,12 +554,6 @@ class PointPillarWhere2commOur(nn.Module):
                 cov_trace_clipped = min(cov_trace_raw, self.uncertainty_weight_trace_clip)
                 uncertainty_score = np.log1p(cov_trace_clipped)
 
-                # ------ NOTE: ADDED MONTE CARLO SAMPLING VARIABLES ------
-                mc_warp_applied = False
-                mc_mean_sampled_theta_abs_dev = 0.0
-                mc_mean_sampled_tx_abs_dev = 0.0
-                mc_mean_sampled_ty_abs_dev = 0.0
-
                 # default behavior: no extra suppression
                 uncertainty_weight = 1.0
                 gate_applied_weight = 1.0
@@ -714,7 +571,7 @@ class PointPillarWhere2commOur(nn.Module):
                 if self.enable_uncertainty_gating:
                     gate_applied_weight, gate_skipped, gate_decision, _ = self.covariance_to_gate_decision(Sigma_params)
 
-                # ------ status-based gating mode ------
+                # status-based gating mode
                 if self.enable_status_based_skip:
                     status_weight, status_skip, status_gate_decision = self.status_to_gate_decision(stats, Sigma_params)
 
@@ -727,8 +584,7 @@ class PointPillarWhere2commOur(nn.Module):
                         # keep current gate settings if status says keep
                         # but mark the status-based decision in logs
                         pass
-                # -------------------------------------------------------------
-
+                
                 # ------ Uncertainty blur ------
                 blur_sigma = 0.0
                 blur_applied = False
@@ -737,13 +593,6 @@ class PointPillarWhere2commOur(nn.Module):
 
                 status_str = str(stats.get('status', 'unknown'))
                 blur_is_allowed = False
-
-                # ------ monte carlo use decision: apply MC warp only for valid, not-skipped, high-uncertainty ok rows ------
-                mc_warp_is_allowed = False
-                if self.enable_tail_mc_warp:
-                    if (not gate_skipped) and (status_str == 'ok') and (cov_trace_raw > float(self.mc_trace_threshold)):
-                        mc_warp_is_allowed = True       
-                # -------------------------------------------------------------
 
                 # New targeted rule:
                 # only blur ok rows in the high-uncertainty tail
@@ -764,30 +613,10 @@ class PointPillarWhere2commOur(nn.Module):
 
                 # -------------------------------------------------------------
                 
-                # # -------------------------------------------------------------
-                # # v1.0: Deterministic: warp collaborator feature map
-                # features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
-                # # -------------------------------------------------------------
-
                 # -------------------------------------------------------------
-                # v2.0: Probabilistic: warp collaborator feature map
-                if mc_warp_is_allowed:
-                    features_2d, mc_warp_applied, mc_stats = self.monte_carlo_warp_features(
-                        features_2d=features_2d,
-                        mu_params=mu_params,
-                        Sigma_params=Sigma_params,
-                        mask_h=mask_h,
-                        mask_w=mask_w,
-                        H=H,
-                        W=W,
-                    )
-                    mc_mean_sampled_theta_abs_dev = mc_stats['mc_mean_sampled_theta_abs_dev']
-                    mc_mean_sampled_tx_abs_dev = mc_stats['mc_mean_sampled_tx_abs_dev']
-                    mc_mean_sampled_ty_abs_dev = mc_stats['mc_mean_sampled_ty_abs_dev']
-                else:
-                    features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))                
+                # 1) Warp collaborator feature map
                 # -------------------------------------------------------------
-
+                features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
 
                 # old continuous weighting (if enabled)
                 if self.enable_uncertainty_weighting:
@@ -803,25 +632,13 @@ class PointPillarWhere2commOur(nn.Module):
                 #     features_2d, blur_applied, blur_kernel_size = self.apply_gaussian_blur_depthwise(
                 #         features_2d, blur_sigma
                 #     )
-
-
-                # -------------------------------------------------------------
-                # v1.0: vertical blur (MODIFIED TO VERSION BELOW FOR MC TEST)
                 if self.enable_ok_tail_vertical_blur and blur_is_allowed and (not gate_skipped):
                     features_2d, blur_applied, blur_kernel_size = self.apply_vertical_gaussian_blur_depthwise(
                         features_2d, blur_sigma
                     )
                 # -------------------------------------------------------------
-
-                # -------------------------------------------------------------
-                # v2.0: verticle blur disable if MC warp is applied
-                if self.enable_ok_tail_vertical_blur and blur_is_allowed and (not gate_skipped) and (not mc_warp_applied):
-                    features_2d, blur_applied, blur_kernel_size = self.apply_vertical_gaussian_blur_depthwise(
-                        features_2d, blur_sigma
-                    )
-
-                # -------------------------------------------------------------
                 # 2) Logging block: log ALL collaborators, including skipped ones
+                # -------------------------------------------------------------
                 if self.enable_cov_logging:
                     if self._cov_log_pair_counter % self.cov_log_every_n_pairs == 0:
                         other_mask_torch = torch.from_numpy(other_mask.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(features_2d.device)
@@ -869,14 +686,6 @@ class PointPillarWhere2commOur(nn.Module):
                             'ok_blur_threshold': float(self.ok_blur_threshold) if self.enable_ok_tail_vertical_blur else None,
                             'vertical_blur_decision': str(vertical_blur_decision),
                             'vertical_blur_used_ty_only': int(self.vertical_blur_use_ty_only),
-                            'mc_warp_enabled': int(self.enable_tail_mc_warp),
-                            'mc_warp_applied': int(mc_warp_applied),
-                            'mc_trace_threshold': float(self.mc_trace_threshold) if self.enable_tail_mc_warp else None,
-                            'mc_num_samples': int(self.mc_num_samples) if self.enable_tail_mc_warp else None,
-                            'mc_use_translation_only': int(self.mc_use_translation_only),
-                            'mc_mean_sampled_theta_abs_dev': float(mc_mean_sampled_theta_abs_dev),
-                            'mc_mean_sampled_tx_abs_dev': float(mc_mean_sampled_tx_abs_dev),
-                            'mc_mean_sampled_ty_abs_dev': float(mc_mean_sampled_ty_abs_dev),
                             'cov_condition_number': float(stats['cov_condition_number']) if stats.get('cov_condition_number') is not None else None,
                             'sigma2_hat': float(stats['sigma2_hat']) if stats.get('sigma2_hat') is not None else None,
                             'num_centroids0_raw': int(stats.get('num_centroids0_raw', 0)),
@@ -898,13 +707,12 @@ class PointPillarWhere2commOur(nn.Module):
                         self._cov_log_sample_counter += 1
 
                     self._cov_log_pair_counter += 1
-                # -------------------------------------------------------------
 
                 # -------------------------------------------------------------
                 # 3) Now apply skip logic AFTER logging
+                # -------------------------------------------------------------
                 if gate_skipped:
                     continue
-                # -------------------------------------------------------------
 
                 feature_list.append(features_2d)
 

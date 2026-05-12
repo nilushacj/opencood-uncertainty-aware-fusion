@@ -3,7 +3,7 @@ name: visualization
 
 yaml_parser: "load_voxel_params"
 root_dir: "opv2v_data_dumping/train"
-validate_dir: "opv2v_data_dumping/test"
+validate_dir: "/scratch/eng/t212-amlab/scaledown_nj/bev_perception/datasets/V2V4REAL/V2V4REAL/Data/validate" #"opv2v_data_dumping/test"
 
 train_params:
   batch_size: &batch_size 4

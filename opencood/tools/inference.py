@@ -38,7 +38,7 @@ def test_parser():
     parser.add_argument('--save_npy', action='store_true',
                         help='whether to save prediction and gt result'
                              'in npy_test file')
-    parser.add_argument('--global_sort_detections', action='store_true',
+    parser.add_argument('--global_sort_detections', action='store_false', # NOTE: this was changed to false
                         help='whether to globally sort detections by confidence score.'
                              'If set to True, it is the mainstream AP computing method,'
                              'but would increase the tolerance for FP (False Positives).')
@@ -53,7 +53,7 @@ def main():
                                                     'the results in single ' \
                                                     'image mode or video mode'
 
-    hypes = yaml_utils.load_yaml(None, opt) #always loads "config.yaml" (can verify from 'opencood/hypes_yaml/yaml_utils.py')
+    hypes = yaml_utils.load_yaml(None, opt) #TODO: change if you dont want it to always load "config.yaml" (can verify from 'opencood/hypes_yaml/yaml_utils.py')
 
     print('Dataset Building')
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
@@ -131,28 +131,28 @@ def main():
                 raise NotImplementedError('Only early, late and intermediate'
                                           'fusion is supported.')
 
-            # ----------------------- shape test -----------------------------
-            if i == 0:
-                # record_len location depends on dataset; try both
-                if 'record_len' in batch_data:
-                    print("record_len:", batch_data['record_len'])
-                elif 'ego' in batch_data and 'record_len' in batch_data['ego']:
-                    print("record_len:", batch_data['ego']['record_len'])
-                lidar = batch_data['ego']['origin_lidar'][0]  # torch tensor, shape [N, 4] usually
-                print("\n[DEBUG shapes]")
-                print("pred_box_tensor:", type(pred_box_tensor), getattr(pred_box_tensor, "shape", None))
-                print("pred_score     :", type(pred_score), getattr(pred_score, "shape", None))
-                print("gt_box_tensor  :", type(gt_box_tensor), getattr(gt_box_tensor, "shape", None))
-                print("origin_lidar   :", type(lidar), getattr(lidar, "shape", None))
+            # # ----------------------- shape test -----------------------------
+            # if i == 0:
+            #     # record_len location depends on dataset; try both
+            #     if 'record_len' in batch_data:
+            #         print("record_len:", batch_data['record_len'])
+            #     elif 'ego' in batch_data and 'record_len' in batch_data['ego']:
+            #         print("record_len:", batch_data['ego']['record_len'])
+            #     lidar = batch_data['ego']['origin_lidar'][0]  # torch tensor, shape [N, 4] usually
+            #     print("\n[DEBUG shapes]")
+            #     print("pred_box_tensor:", type(pred_box_tensor), getattr(pred_box_tensor, "shape", None))
+            #     print("pred_score     :", type(pred_score), getattr(pred_score, "shape", None))
+            #     print("gt_box_tensor  :", type(gt_box_tensor), getattr(gt_box_tensor, "shape", None))
+            #     print("origin_lidar   :", type(lidar), getattr(lidar, "shape", None))
 
-                # If they are torch tensors, also print min/max sanity checks
-                if torch.is_tensor(pred_score) and pred_score.numel() > 0:
-                    print("pred_score min/max:", pred_score.min().item(), pred_score.max().item())
-                if torch.is_tensor(lidar) and lidar.numel() > 0:
-                    print("lidar xyz min:", lidar[:, :3].min(dim=0).values.tolist())
-                    print("lidar xyz max:", lidar[:, :3].max(dim=0).values.tolist())
-                print("[/DEBUG shapes]\n")
-            # ---------------------------------
+            #     # If they are torch tensors, also print min/max sanity checks
+            #     if torch.is_tensor(pred_score) and pred_score.numel() > 0:
+            #         print("pred_score min/max:", pred_score.min().item(), pred_score.max().item())
+            #     if torch.is_tensor(lidar) and lidar.numel() > 0:
+            #         print("lidar xyz min:", lidar[:, :3].min(dim=0).values.tolist())
+            #         print("lidar xyz max:", lidar[:, :3].max(dim=0).values.tolist())
+            #     print("[/DEBUG shapes]\n")
+            # # ---------------------------------
 
             eval_utils.caluclate_tp_fp(pred_box_tensor,
                                        pred_score,
@@ -170,7 +170,7 @@ def main():
                                        result_stat,
                                        0.7)
             if opt.save_npy:
-                npy_save_path = os.path.join(opt.model_dir, 'npy')
+                npy_save_path = os.path.join(opt.model_dir, 'npy') # NOTE: hardcoded to avoid creating many numpy outputs
                 if not os.path.exists(npy_save_path):
                     os.makedirs(npy_save_path)
                 inference_utils.save_prediction_gt(pred_box_tensor,
@@ -245,9 +245,11 @@ def main():
                 vis.update_renderer()
                 time.sleep(0.001)
         #break
+    yaml_name=opt.model_dir[len("opencood/pretrained/feaco/generated_"):]
     eval_utils.eval_final_results(result_stat,
                                   opt.model_dir,
-                                  opt.global_sort_detections)
+                                  opt.global_sort_detections,
+                                  yaml_name)
     if opt.show_sequence:
         vis.destroy_window()
 
@@ -261,7 +263,12 @@ Usage:
     python opencood/tools/inference.py --model_dir opencood/pretrained/cobevt_lidar  --fusion_method intermediate --save_npy
     python opencood/tools/inference.py --model_dir opencood/pretrained/feaco  --fusion_method intermediate --save_npy
 
-Note: might not work in hopper architectures
+
+    python opencood/tools/inference.py \
+    --model_dir opencood/pretrained/feaco/generated_feaco_baseline__clean__xyz0__ryp0__seed20 \
+    --fusion_method intermediate
+
+Note: does not work in hopper architectures
 """
 
 
