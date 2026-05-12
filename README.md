@@ -126,8 +126,16 @@ TBD
 TBD
 
 ## Run standard inference
-TBD
+Before you run the following command, first make sure the `validation_dir` in config.yaml under your checkpoint folder refers to the correct dataset path e.g. `V2XSet/validate`.
+```bash
+python opencood/tools/inference.py --model_dir opencood/pretrained/feaco  --fusion_method intermediate --save_npy
+```
+Arguments Explanation:
+- `model_dir`: the path to your saved model.
+- `fusion_method`: indicate the fusion strategy, currently support 'early', 'late', and 'intermediate' but we do 'intermediate' (thus set it to this).
+- `save_npy`: whether to save detections as numpy files or not.
 
+The evaluation results  will be dumped in the model directory. 
 ## Run parallel inference (useful for multiple noise/model setting evaluation)
 TBD
 
