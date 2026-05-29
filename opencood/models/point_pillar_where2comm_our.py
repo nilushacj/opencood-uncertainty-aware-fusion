@@ -207,77 +207,74 @@ class PointPillarWhere2commOur(nn.Module):
             'status'
         ]
 
-        # -- uncertainty weight settings --
+        # -- IGNORE (older version): uncertainty weight settings --
         self.enable_uncertainty_weighting = args.get('enable_uncertainty_weighting', False)
         self.uncertainty_weight_alpha = args.get('uncertainty_weight_alpha', 0.5)
         self.uncertainty_weight_trace_clip = args.get('uncertainty_weight_trace_clip', 50.0)
         self.uncertainty_weight_min = args.get('uncertainty_weight_min', 0.2)
-
-        # -- hard skip/binary weight settings --
         self.enable_uncertainty_gating = args.get('enable_uncertainty_gating', False)
         self.uncertainty_gate_mode = args.get('uncertainty_gate_mode', 'hard_skip')
-        # supported:
-        #   'hard_skip'       -> skip collaborator if trace > threshold
-        #   'binary_weight'   -> use low weight if trace > threshold else 1.0
-
         self.uncertainty_gate_threshold = args.get('uncertainty_gate_threshold', 10.0)
         self.uncertainty_gate_low_weight = args.get('uncertainty_gate_low_weight', 0.5)
+        # -------------------
 
         # -- status-aware gating settings --
         self.enable_status_based_skip = args.get('enable_status_based_skip', False)
 
-        # Optional stronger version:
-        # if True, also skip very high-uncertainty rows even when status == 'ok'
+        # -- skip very high uncertainty rows even when status is 'ok' (set to false) --
         self.enable_ok_tail_skip = args.get('enable_ok_tail_skip', False)
         self.ok_tail_skip_threshold = args.get('ok_tail_skip_threshold', 100.0)
 
-        # -- uncertainty-aware blur settings --
+        # -- uncertainty-aware blur settings (set to false) --
         self.enable_uncertainty_blur = args.get('enable_uncertainty_blur', False)
 
-        # blur is applied only when status == 'ok'
+        # -- blur is applied only when status == 'ok' --
         self.blur_use_only_ok = args.get('blur_use_only_ok', True)
 
-        # scale factor converting covariance-derived sigma to blur sigma in pixels
+        # -- scale factor converting covariance-derived sigma to blur sigma in pixels --
         self.blur_sigma_scale = args.get('blur_sigma_scale', 1.0)
 
-        # lower / upper clamp for blur sigma
+        # -- lower / upper clamp for blur sigma --
         self.blur_sigma_min = args.get('blur_sigma_min', 0.0)
         self.blur_sigma_max = args.get('blur_sigma_max', 2.5)
 
-        # if blur sigma is below this, skip blurring
+        # -- if blur sigma is below this, skip blurring --
         self.blur_apply_threshold = args.get('blur_apply_threshold', 0.15)
 
         # -- tail-only directional blur settings --
         self.enable_ok_tail_vertical_blur = args.get('enable_ok_tail_vertical_blur', False)
 
-        # only apply blur to ok rows with cov_trace above this threshold
+        # -- only apply blur to ok rows with cov_trace above this threshold --
         self.ok_blur_threshold = args.get('ok_blur_threshold', 9.61)
 
-        # use ty variance only for first directional version
+        # -- use ty variance only for first directional version --
         self.vertical_blur_use_ty_only = args.get('vertical_blur_use_ty_only', True)
 
         # -- tail-only Monte Carlo warp settings --
         self.enable_tail_mc_warp = args.get('enable_tail_mc_warp', False)
 
-        # apply MC warp only to ok rows with cov_trace above this threshold
+        # -- apply MC warp only to ok rows with cov_trace above this threshold --
         self.mc_trace_threshold = args.get('mc_trace_threshold', 9.800544452667232)
 
-        # number of transform samples, including the mean sample only implicitly via sampling
+        # -- number of transform samples, including the mean sample only implicitly via sampling --
         self.mc_num_samples = args.get('mc_num_samples', 3)
 
-        # for reproducibility if desired; set None to use default randomness
+        # -- for reproducibility if desired; set None to use default randomness --
         self.mc_random_seed = args.get('mc_random_seed', None)
 
-        # if True, only use translation covariance (tx, ty) and keep theta fixed at mean
+        # -- if True, only use translation covariance (tx, ty) and keep theta fixed at mean --
         self.mc_use_translation_only = args.get('mc_use_translation_only', False)
 
-        # optional safety clamp on sampled theta deviation (radians)
+        # -- optional safety clamp on sampled theta deviation (radians) --
         self.mc_theta_clip = args.get('mc_theta_clip', 0.15)
 
-        # optional safety clamp on sampled tx/ty deviation (feature-map pixels)
+        # -- optional safety clamp on sampled tx/ty deviation (feature-map pixels) --
         self.mc_translation_clip = args.get('mc_translation_clip', 3.0)
 
-
+        # -- for monte carlo --
+        if self.enable_tail_mc_warp and self.mc_random_seed is not None:
+            np.random.seed(int(self.mc_random_seed))
+        ###
     def backbone_fix(self):
         """
         Fix the parameters of backbone during finetune on timedelay。
@@ -477,7 +474,6 @@ class PointPillarWhere2commOur(nn.Module):
         )
         return x_blur, True, ksize
 
- 
     def apply_vertical_gaussian_blur_depthwise(self, x, sigma):
         """
         x: [B, C, H, W]
@@ -514,17 +510,17 @@ class PointPillarWhere2commOur(nn.Module):
         ])
     
     def sample_transform_params(self, mu_params, Sigma_params):
-        """
-        Sample [theta, tx, ty] from N(mu, Sigma), with optional safety restrictions.
-        Returns sampled_params, and absolute deviations from mean.
-        """
         mu = np.asarray(mu_params, dtype=np.float64).reshape(3)
         Sigma = np.asarray(Sigma_params, dtype=np.float64).reshape(3, 3)
 
-        # Optional translation-only mode
+        Sigma = 0.5 * (Sigma + Sigma.T)
+        Sigma = Sigma + 1e-8 * np.eye(3, dtype=np.float64)
+
         if self.mc_use_translation_only:
             Sigma_mod = np.zeros((3, 3), dtype=np.float64)
             Sigma_mod[1:, 1:] = Sigma[1:, 1:]
+            Sigma_mod = 0.5 * (Sigma_mod + Sigma_mod.T)
+            Sigma_mod = Sigma_mod + 1e-8 * np.eye(3, dtype=np.float64)
             sample = np.random.multivariate_normal(mu, Sigma_mod)
             sample[0] = mu[0]
         else:
@@ -547,27 +543,43 @@ class PointPillarWhere2commOur(nn.Module):
     
     def monte_carlo_warp_features(self, features_2d, mu_params, Sigma_params, mask_h, mask_w, H, W):
         """
-        Apply Monte Carlo warping:
-          - sample K transforms from N(mu, Sigma)
-          - convert each to normalized affine via trans_tx
-          - warp features
-          - average warped features
-
-        Input:
-            features_2d: [C, H, W]
-        Output:
+        features_2d: [C, H, W]
+        Returns:
             warped_mean: [1, C, H, W]
+            mc_applied: bool
+            stats_dict: dict
+        """
+        src_tensor = features_2d.unsqueeze(0)  # [1, C, H, W]
+        return self.monte_carlo_warp_tensor(
+            src_tensor=src_tensor,
+            mu_params=mu_params,
+            Sigma_params=Sigma_params,
+            mask_h=mask_h,
+            mask_w=mask_w,
+            out_h=H,
+            out_w=W,
+        )    
+
+    def monte_carlo_warp_tensor(self, src_tensor, mu_params, Sigma_params, mask_h, mask_w, out_h, out_w):
+        """
+        Generic Monte Carlo warp for any tensor of shape [1, C, H, W].
+
+        Returns:
+            warped_mean: [1, C, out_h, out_w]
             mc_applied: bool
             stats_dict: dict
         """
         K = int(self.mc_num_samples)
 
         if K <= 1:
-            # fall back to deterministic mean warp
-            mu_affine = self.params_to_affine(float(mu_params[0]), float(mu_params[1]), float(mu_params[2]))
+            mu_affine = self.params_to_affine(
+                float(mu_params[0]),
+                float(mu_params[1]),
+                float(mu_params[2])
+            )
             t_matrix = trans_tx(mu_affine, mask_h, mask_w)
-            t_matrix = torch.from_numpy(t_matrix).to(features_2d.device).unsqueeze(0)
-            warped = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))
+            t_matrix = torch.from_numpy(t_matrix).to(src_tensor.device).unsqueeze(0)
+            warped = warp_affine_simple(src_tensor, t_matrix, (out_h, out_w))
             return warped, False, {
                 'mc_mean_sampled_theta_abs_dev': 0.0,
                 'mc_mean_sampled_tx_abs_dev': 0.0,
@@ -580,7 +592,9 @@ class PointPillarWhere2commOur(nn.Module):
         ty_abs_devs = []
 
         for _ in range(K):
-            sampled_params, dtheta_abs, dtx_abs, dty_abs = self.sample_transform_params(mu_params, Sigma_params)
+            sampled_params, dtheta_abs, dtx_abs, dty_abs = self.sample_transform_params(
+                mu_params, Sigma_params
+            )
 
             sampled_affine = self.params_to_affine(
                 float(sampled_params[0]),
@@ -588,9 +602,9 @@ class PointPillarWhere2commOur(nn.Module):
                 float(sampled_params[2]),
             )
             sampled_t_matrix = trans_tx(sampled_affine, mask_h, mask_w)
-            sampled_t_matrix = torch.from_numpy(sampled_t_matrix).to(features_2d.device).unsqueeze(0)
+            sampled_t_matrix = torch.from_numpy(sampled_t_matrix).to(src_tensor.device).unsqueeze(0)
 
-            warped_k = warp_affine_simple(features_2d.unsqueeze(0), sampled_t_matrix, (H, W))
+            warped_k = warp_affine_simple(src_tensor, sampled_t_matrix, (out_h, out_w))
             warped_list.append(warped_k)
 
             theta_abs_devs.append(dtheta_abs)
@@ -603,8 +617,7 @@ class PointPillarWhere2commOur(nn.Module):
             'mc_mean_sampled_theta_abs_dev': float(np.mean(theta_abs_devs)) if theta_abs_devs else 0.0,
             'mc_mean_sampled_tx_abs_dev': float(np.mean(tx_abs_devs)) if tx_abs_devs else 0.0,
             'mc_mean_sampled_ty_abs_dev': float(np.mean(ty_abs_devs)) if ty_abs_devs else 0.0,
-        }    
-    
+        }
     def forward(self, data_dict):
 
         voxel_features = data_dict['processed_lidar']['voxel_features']
@@ -642,11 +655,6 @@ class PointPillarWhere2commOur(nn.Module):
         
         split_spatial_features_2d = self.regroup(batch_dict['spatial_features'], record_len) 
         feature_list = []
-
-        # for monte carlo
-        if self.enable_tail_mc_warp and self.mc_random_seed is not None:
-            np.random.seed(int(self.mc_random_seed))
-        ###
 
         for i in range(len(communication_masks)):
             mask = communication_masks[i].squeeze(1).to('cpu').numpy()
@@ -697,20 +705,20 @@ class PointPillarWhere2commOur(nn.Module):
                 mc_mean_sampled_tx_abs_dev = 0.0
                 mc_mean_sampled_ty_abs_dev = 0.0
 
-                # default behavior: no extra suppression
+                # default behavior no extra suppression
                 uncertainty_weight = 1.0
                 gate_applied_weight = 1.0
                 gate_skipped = False
                 gate_decision = 'none'
                 status_gate_decision = 'disabled'
 
-                # REMOVE: continuous weighting mode
+                # IGNORE: continuous weighting mode
                 if self.enable_uncertainty_weighting:
                     uncertainty_weight, _, uncertainty_score = self.covariance_to_weight(Sigma_params)
                     gate_applied_weight = uncertainty_weight
                     gate_decision = 'continuous_weight'
 
-                # REMOVE: threshold-based gating mode
+                # IGNORE: threshold-based gating mode
                 if self.enable_uncertainty_gating:
                     gate_applied_weight, gate_skipped, gate_decision, _ = self.covariance_to_gate_decision(Sigma_params)
 
@@ -745,7 +753,6 @@ class PointPillarWhere2commOur(nn.Module):
                         mc_warp_is_allowed = True       
                 # -------------------------------------------------------------
 
-                # New targeted rule:
                 # only blur ok rows in the high-uncertainty tail
                 if self.enable_ok_tail_vertical_blur:
                     if status_str == 'ok':
@@ -789,11 +796,11 @@ class PointPillarWhere2commOur(nn.Module):
                 # -------------------------------------------------------------
 
 
-                # old continuous weighting (if enabled)
+                # IGNORE: old continuous weighting (if enabled)
                 if self.enable_uncertainty_weighting:
                     features_2d = features_2d * uncertainty_weight
 
-                # threshold-based weighting (only apply weight here; do NOT continue yet)
+                # IGNORE: threshold-based weighting (only apply weight here; do NOT continue yet)
                 if self.enable_uncertainty_gating and (not gate_skipped):
                     features_2d = features_2d * gate_applied_weight
 
@@ -806,11 +813,11 @@ class PointPillarWhere2commOur(nn.Module):
 
 
                 # -------------------------------------------------------------
-                # v1.0: vertical blur (MODIFIED TO VERSION BELOW FOR MC TEST)
-                if self.enable_ok_tail_vertical_blur and blur_is_allowed and (not gate_skipped):
-                    features_2d, blur_applied, blur_kernel_size = self.apply_vertical_gaussian_blur_depthwise(
-                        features_2d, blur_sigma
-                    )
+                # # v1.0: vertical blur (MODIFIED TO VERSION BELOW FOR MC TEST)
+                # if self.enable_ok_tail_vertical_blur and blur_is_allowed and (not gate_skipped):
+                #     features_2d, blur_applied, blur_kernel_size = self.apply_vertical_gaussian_blur_depthwise(
+                #         features_2d, blur_sigma
+                #     )
                 # -------------------------------------------------------------
 
                 # -------------------------------------------------------------
@@ -825,8 +832,21 @@ class PointPillarWhere2commOur(nn.Module):
                 if self.enable_cov_logging:
                     if self._cov_log_pair_counter % self.cov_log_every_n_pairs == 0:
                         other_mask_torch = torch.from_numpy(other_mask.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(features_2d.device)
-                        warped_mask = warp_affine_simple(other_mask_torch, t_matrix, (mask_h, mask_w)).squeeze().detach().cpu().numpy()
 
+                        if mc_warp_applied:
+                            warped_mask_tensor, _, _ = self.monte_carlo_warp_tensor(
+                                src_tensor=other_mask_torch,
+                                mu_params=mu_params,
+                                Sigma_params=Sigma_params,
+                                mask_h=mask_h,
+                                mask_w=mask_w,
+                                out_h=mask_h,
+                                out_w=mask_w,
+                            )
+                        else:
+                            warped_mask_tensor = warp_affine_simple(other_mask_torch, t_matrix, (mask_h, mask_w))
+
+                        warped_mask = warped_mask_tensor.squeeze().detach().cpu().numpy()
                         mask_iou_after_warp = compute_mask_iou(
                             ego_mask,
                             warped_mask,
