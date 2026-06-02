@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=feaco_eval_parallel
-#SBATCH --time=10:00:00
+#SBATCH --time=20:00:00
 #SBATCH --gpus=v100:1 
 #SBATCH --mem=200G
 #SBATCH --cpus-per-task=8

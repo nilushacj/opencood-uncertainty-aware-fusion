@@ -678,17 +678,8 @@ class PointPillarWhere2commOur(nn.Module):
                 C,H,W = features_2d.shape
                 other_mask = mask[j]
 
-                # ------ NOTE: REMOVED BLOCK ------ 
-                #t_matrix = get_t_matrix(ego_mask,other_mask) # get fine-grid transformation matrix 
-                #t_matrix = trans_tx(t_matrix,mask_h,mask_w)
-                # ----------------------------------
-
                 # ------ NOTE: ADDED BLOCK (LEVEL 2 - COVARIANCE VALIDATION) ------ 
                 mu_affine, mu_params, Sigma_params, stats = get_transform_distribution(ego_mask, other_mask)
-                # if j == 1 and i == 0:
-                #     print("mu_params:", mu_params)
-                #     print("diag(Sigma):", np.diag(Sigma_params))
-                #     print("stats:", stats)
                 t_matrix = trans_tx(mu_affine, mask_h, mask_w) # NOTE: only mean transform is still used  
                 t_matrix = torch.from_numpy(t_matrix).to(features_2d.device).unsqueeze(0)
                 # ----------------------------------
@@ -919,7 +910,7 @@ class PointPillarWhere2commOur(nn.Module):
 
                     self._cov_log_pair_counter += 1
                 # -------------------------------------------------------------
-
+  
                 # -------------------------------------------------------------
                 # 3) Now apply skip logic AFTER logging
                 if gate_skipped:

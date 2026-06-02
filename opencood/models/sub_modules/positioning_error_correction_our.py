@@ -317,18 +317,22 @@ def get_t_matrix(mask0, mask1):
 
 def get_transform_distribution(mask0, mask1):
     """
-    Estimate a rigid 2D transform distribution aligning mask1 -> mask0.
+    Estimate a rigid 2D transform distribution aligning mask1 -> mask0, uncertainty calculated using least-squares approximation
 
     Returns:
         mu_affine: np.float32 of shape (2, 3)
             Mean affine transform [[cos(theta), -sin(theta), tx],
                                    [sin(theta),  cos(theta), ty]]
 
-        mu_params: np.float32 of shape (3,)
+        mu_params: np.float32 of shape (3,) i.e. the best transform
             [theta, tx, ty]
 
-        Sigma_params: np.float32 of shape (3, 3)
+        Sigma_params: np.float32 of shape (3, 3) i.e. the uncertainty of the transform
             Covariance of [theta, tx, ty]
+             = [Var(θ)    Cov(tx,θ)  Cov(ty,θ)
+                Cov(θ,tx) Var(tx)    Cov(ty,tx)
+                Cov(θ,ty) Cov(tx,ty) Var(ty)]
+
 
         stats: dict
             Diagnostic information useful for debugging/logging.
@@ -464,7 +468,7 @@ def get_transform_distribution(mask0, mask1):
     mu_params = np.float32([theta, tx, ty])
 
     # ---------------------------------
-    # 6) Residuals after alignment
+    # 6) Residuals after alignment, residual = actual target point - predicted target point
     # ---------------------------------
     aligned_source = (R @ source_pts) + T    # shape (2, N)
     residuals = target_pts - aligned_source  # shape (2, N)
@@ -581,7 +585,7 @@ def get_transform_distribution(mask0, mask1):
     stats['cov_tx_var'] = float(Sigma_params[1, 1])
     stats['cov_ty_var'] = float(Sigma_params[2, 2])
 
-    stats['status'] = 'ok'
+    stats['status'] = 'ok' # NOTE: small residuals / small covariance values = good alignment
     return mu_affine, mu_params, Sigma_params, stats
 
 
