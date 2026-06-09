@@ -33,7 +33,7 @@ Uncertainty was then passed to the where2comm fusion model.
 
 The feature warping is done with the mean transform for each collaborator pair:
 
-$\tilde{F_i} = \operatorname{Warp}(F_i, \mu_i)$
+$\tilde{F}_i = \mathrm{Warp}(F_i, \mu_i)$
 
 where,
 - $F_i$ : BEV feature map of collaborator
@@ -48,7 +48,7 @@ $c_i = tr(\Sigma_i$ )
 
 Clip it (to make reliability stable and prevent affects of very high covariance values): 
 
-$\bar{c}_i = min(max(c_i, 0), c_{max})$
+$\bar{c}_i = \min(\max(c_i, 0), c_{\max})$
 
 where $c_{max}$ is a preset threshold
 
@@ -71,8 +71,7 @@ if $s_i \neq ok$:
 - $r_i = r_{min}$
 
 if  $s_i = ok$:
-- $clip( (1+\bar{c}_i)^{-\alpha} , r_{min} , r_{max} )$
-
+- $\mathrm{clip}\left((1+\bar{c}_i)^{-\alpha}, r_{\min}, r_{\max}\right)$
 where
 - $r_{min}$ and $r_{max}$ are preset thresholds.
 - $\alpha$ is a preset constant which determines how strongly covariance affects reliability
@@ -99,7 +98,7 @@ score = torch.bmm(query, key.transpose(1, 2)) / self.sqrt_dim
 
 OUR addition of uncertainty-aware attention bias:
 
-$\tilde{e}_{pq}^{(i,j)} = e_{pq}^{(i,j)} + \beta log(r_j)$
+$\tilde{e}_{pq}^{(i,j)} = e_{pq}^{(i,j)} + \beta \log(r_j)$
 
 where
 - $\beta$ is the bias strength and it is a preset constant to determine how strongly reliability will affect attention
