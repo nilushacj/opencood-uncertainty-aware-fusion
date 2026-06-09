@@ -1,0 +1,237 @@
+data_augment:
+- ALONG_AXIS_LIST:
+  - x
+  NAME: random_world_flip
+- NAME: random_world_rotation
+  WORLD_ROT_ANGLE:
+  - -0.78539816
+  - 0.78539816
+- NAME: random_world_scaling
+  WORLD_SCALE_RANGE:
+  - 0.95
+  - 1.05
+fusion:
+  args:
+    cur_ego_pose_flag: false
+  core_method: IntermediateFusionDataset
+loss:
+  args:
+    cls_weight: 1.0
+    reg: 2.0
+  core_method: point_pillar_loss
+lr_scheduler:
+  core_method: multistep
+  gamma: 0.1
+  step_size:
+  - 10
+  - 20
+model:
+  args:
+    anchor_number: 2
+    backbone_fix: false
+    base_bev_backbone:
+      compression: 0
+      layer_nums: &id001
+      - 3
+      - 4
+      - 5
+      layer_strides:
+      - 2
+      - 2
+      - 2
+      num_filters: &id002
+      - 64
+      - 128
+      - 256
+      num_upsample_filter:
+      - 128
+      - 128
+      - 128
+      resnet: true
+      upsample_strides:
+      - 1
+      - 2
+      - 4
+      voxel_size: &id003
+      - 0.4
+      - 0.4
+      - 4
+    communication:
+      gaussian_smooth:
+        c_sigma: 1.0
+        k_size: 5
+      thre: 0.15
+    compression: 0
+    fusion_args:
+      agg_operator:
+        feature_dim: 256
+        mode: ATTEN
+        n_head: 8
+        with_scm: false
+        with_spe: false
+      batch_size: 2
+      downsample_rate: 1
+      dropout_rate: 0
+      in_channels: 256
+      layer_nums: *id001
+      multi_scale: true
+      n_head: 8
+      num_filters: *id002
+      only_attention: true
+      voxel_size: *id003
+    lidar_range: &id004
+    - -140.8
+    - -40
+    - -3
+    - 140.8
+    - 40
+    - 1
+    max_cav: 5
+    pillar_vfe:
+      num_filters:
+      - 64
+      use_absolute_xyz: true
+      use_norm: true
+      with_distance: false
+    point_pillar_scatter:
+      grid_size: !!python/object/apply:numpy.core.multiarray._reconstruct
+        args:
+        - !!python/name:numpy.ndarray ''
+        - !!python/tuple
+          - 0
+        - !!binary |
+          Yg==
+        state: !!python/tuple
+        - 1
+        - !!python/tuple
+          - 3
+        - !!python/object/apply:numpy.dtype
+          args:
+          - i8
+          - false
+          - true
+          state: !!python/tuple
+          - 3
+          - <
+          - null
+          - null
+          - null
+          - -1
+          - -1
+          - 0
+        - false
+        - !!binary |
+          wAIAAAAAAADIAAAAAAAAAAEAAAAAAAAA
+      num_features: 64
+    shrink_header:
+      dim:
+      - 256
+      input_dim: 384
+      kernal_size:
+      - 3
+      padding:
+      - 1
+      stride:
+      - 1
+    voxel_size: *id003
+    enable_cov_logging: true
+    cov_log_dir: debug_prm/cov_logs
+    cov_log_filename: val_uncertainty_fusion_attention_bias_no_noise.csv
+    cov_log_every_n_pairs: 1
+    enable_uncertainty_weighting: false
+    uncertainty_weight_alpha: 0.1
+    uncertainty_weight_trace_clip: 50.0
+    uncertainty_weight_min: 0.2
+    enable_uncertainty_gating: false
+    uncertainty_gate_mode: binary_weight
+    uncertainty_gate_threshold: 50.010002
+    uncertainty_gate_low_weight: 0.5
+    enable_status_based_skip: false
+    enable_ok_tail_skip: false
+    ok_tail_skip_threshold: 100.0
+    enable_uncertainty_blur: false
+    enable_ok_tail_vertical_blur: false
+    ok_blur_threshold: 9.800544452667232
+    vertical_blur_use_ty_only: false
+    blur_use_only_ok: false
+    blur_sigma_scale: 0.05
+    blur_sigma_min: 0.0
+    blur_sigma_max: 0.75
+    blur_apply_threshold: 0.1
+    enable_tail_mc_warp: false
+    mc_trace_threshold: 9.800544452667232
+    mc_num_samples: 3
+    mc_random_seed: 123
+    mc_use_translation_only: false
+    mc_theta_clip: 0.15
+    mc_translation_clip: 3.0
+    enable_uncertainty_fusion: true
+    uncertainty_fusion_mode: attention_bias
+    uncertainty_conf_alpha: 0.10 # how strongly covariance affects reliability
+    uncertainty_conf_trace_clip: 50.0 # prevents extreme covariance from dominating
+    uncertainty_conf_min: 0.05
+    uncertainty_conf_max: 1.0
+    uncertainty_status_min_conf: 0.05 # reliability for non-ok PRM pairs
+    uncertainty_attention_bias_strength: 1.0 # how strongly reliability biases attention
+  core_method: point_pillar_where2comm_our
+name: opv2v_where2comm_transformer_multiscale_resnet
+optimizer:
+  args:
+    eps: 1.0e-10
+    weight_decay: 0.0001
+  core_method: Adam
+  lr: 0.001
+postprocess:
+  anchor_args:
+    D: 1
+    H: 200
+    W: 704
+    cav_lidar_range: *id004
+    feature_stride: 2
+    h: 1.56
+    l: 3.9
+    num: 2
+    r:
+    - 0
+    - 90
+    vd: 4
+    vh: 0.4
+    vw: 0.4
+    w: 1.6
+  core_method: VoxelPostprocessor
+  gt_range: *id004
+  max_num: 100
+  nms_thresh: 0.25
+  order: hwl
+  target_args:
+    neg_threshold: 0.45
+    pos_threshold: 0.6
+    score_threshold: 0.25
+preprocess:
+  args:
+    max_points_per_voxel: 32
+    max_voxel_test: 70000
+    max_voxel_train: 32000
+    voxel_size: *id003
+  cav_lidar_range: *id004
+  core_method: SpVoxelPreprocessor
+root_dir: /data/opv2v/train
+train_params:
+  batch_size: 2
+  epoches: 100
+  eval_freq: 2
+  max_cav: 5
+  save_freq: 2
+validate_dir: /scratch/eng/t212-amlab/scaledown_nj/bev_perception/datasets/V2XSet/validate
+wild_setting:
+  async: false
+  async_mode: sim
+  async_overhead: 0
+  backbone_delay: 0
+  data_size: 1.06
+  loc_err: false
+  ryp_std: 0
+  seed: 20
+  transmission_speed: 27
+  xyz_std: 0
+yaml_parser: load_point_pillar_params
