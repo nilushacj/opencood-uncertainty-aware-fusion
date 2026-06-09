@@ -3,11 +3,12 @@
 Main changes are in the pose rectification and collaborator warping stages.
 
 Original:
+![Original V2V fusion diagram](V2V_Fusion_1.drawio.svg)
 
-![[V2V_Fusion_1.drawio.svg]]
 
 Our:
-![[V2V_Fusion_Overview_attention 1.svg]]
+![Our V2V fusion diagram](V2V_Fusion_Overview_attention.svg)
+
 ## v1.0. Probabilistic PRM
 
 **Original** PRM output was a single transform. 
