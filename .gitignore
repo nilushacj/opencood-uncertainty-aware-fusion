@@ -138,7 +138,7 @@ opv2v_data_dumping
 checkpoints
 DCOS.md
 spconv/
-opencood/pretrained/feaco
+opencood/pretrained/feaco/*/
 parallel_inference_logs_*/
 debug_prm/
 manual_ablations_with_without_noise.md
