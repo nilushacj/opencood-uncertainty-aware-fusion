@@ -53,7 +53,8 @@ def main():
                                                     'the results in single ' \
                                                     'image mode or video mode'
 
-    hypes = yaml_utils.load_yaml(None, opt) #TODO: change if you dont want it to always load "config.yaml" (can verify from 'opencood/hypes_yaml/yaml_utils.py')
+    hypes = yaml_utils.load_yaml('None', opt) #TODO: change if you dont want it to always load "config.yaml" (can verify from 'opencood/hypes_yaml/yaml_utils.py')
+    #hypes = yaml_utils.load_yaml('config_monte_carlo_v2', opt) #TODO: change if you dont want it to always load "config.yaml" (can verify from 'opencood/hypes_yaml/yaml_utils.py')
 
     print('Dataset Building')
     opencood_dataset = build_dataset(hypes, visualize=True, train=False)
@@ -261,7 +262,9 @@ if __name__ == '__main__':
 Usage:
     python opencood/tools/inference.py --model_dir opencood/pretrained/v2x-vit  --fusion_method intermediate --save_npy
     python opencood/tools/inference.py --model_dir opencood/pretrained/cobevt_lidar  --fusion_method intermediate --save_npy
+    
     python opencood/tools/inference.py --model_dir opencood/pretrained/feaco  --fusion_method intermediate --save_npy
+
 
 
     python opencood/tools/inference.py \

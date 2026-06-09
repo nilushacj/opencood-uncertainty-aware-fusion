@@ -138,3 +138,14 @@ opv2v_data_dumping
 checkpoints
 DCOS.md
 spconv/
+opencood/pretrained/feaco
+parallel_inference_logs_*/
+debug_prm/
+manual_ablations_with_without_noise.md
+manual_log_feaco_level_2_covariance.txt
+manual_log_level_2_uncertainty_weighting.txt
+opencood/pretrained/cobevt_lidar/
+opencood/pretrained/v2x-vit/
+result_log_archives/
+slurm_logs/
+test_scripts/

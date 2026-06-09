@@ -15,7 +15,7 @@ from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
 from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
-from opencood.models.fuse_modules.where2comm_mutihead_our import Where2comm
+from opencood.models.fuse_modules.where2comm_mutihead import Where2comm
 from opencood.models.sub_modules.psm_mask import Communication
 from opencood.models.sub_modules.positioning_error_correction_our import get_transform_distribution
 import torch
@@ -165,41 +165,32 @@ class PointPillarWhere2commOur(nn.Module):
             'cov_trace_clipped',
             'uncertainty_score',
             'uncertainty_weight',
-            # 'gate_mode',
-            # 'gate_threshold',
-            # 'gate_decision',
-            # 'gate_applied_weight',
-            # 'gate_skipped',
-            # 'fused_into_feature_list',
-            # 'status_gate_enabled',
-            # 'status_gate_decision',
-            # 'ok_tail_skip_enabled',
-            # 'ok_tail_skip_threshold',
-            # 'blur_enabled',
-            # 'blur_applied',
-            # 'blur_sigma',
-            # 'blur_kernel_size',
-            # 'ok_tail_vertical_blur_enabled',
-            # 'ok_blur_threshold',
-            # 'vertical_blur_decision',
-            # 'vertical_blur_used_ty_only',
-            # 'mc_warp_enabled',
-            # 'mc_warp_applied',
-            # 'mc_trace_threshold',
-            # 'mc_num_samples',
-            # 'mc_use_translation_only',
-            # 'mc_mean_sampled_theta_abs_dev',
-            # 'mc_mean_sampled_tx_abs_dev',
-            # 'mc_mean_sampled_ty_abs_dev',
-            'uncertainty_fusion_enabled',
-            'uncertainty_fusion_mode',
-            'fusion_reliability',
-            'uncertainty_conf_alpha',
-            'uncertainty_conf_trace_clip',
-            'uncertainty_conf_min',
-            'uncertainty_conf_max',
-            'uncertainty_status_min_conf',
-            'uncertainty_attention_bias_strength',
+            'gate_mode',
+            'gate_threshold',
+            'gate_decision',
+            'gate_applied_weight',
+            'gate_skipped',
+            'fused_into_feature_list',
+            'status_gate_enabled',
+            'status_gate_decision',
+            'ok_tail_skip_enabled',
+            'ok_tail_skip_threshold',
+            'blur_enabled',
+            'blur_applied',
+            'blur_sigma',
+            'blur_kernel_size',
+            'ok_tail_vertical_blur_enabled',
+            'ok_blur_threshold',
+            'vertical_blur_decision',
+            'vertical_blur_used_ty_only',
+            'mc_warp_enabled',
+            'mc_warp_applied',
+            'mc_trace_threshold',
+            'mc_num_samples',
+            'mc_use_translation_only',
+            'mc_mean_sampled_theta_abs_dev',
+            'mc_mean_sampled_tx_abs_dev',
+            'mc_mean_sampled_ty_abs_dev',
             'cov_condition_number',
             'sigma2_hat',
             'num_centroids0_raw',
@@ -284,17 +275,6 @@ class PointPillarWhere2commOur(nn.Module):
         if self.enable_tail_mc_warp and self.mc_random_seed is not None:
             np.random.seed(int(self.mc_random_seed))
         ###
-
-        ## -- for uncertainty fusion --
-        self.enable_uncertainty_fusion = args.get('enable_uncertainty_fusion', False)
-        self.uncertainty_fusion_mode = args.get('uncertainty_fusion_mode', 'attention_bias')
-        self.uncertainty_conf_alpha = args.get('uncertainty_conf_alpha', 0.10) # how strongly covariance affects reliability
-        self.uncertainty_conf_trace_clip = args.get('uncertainty_conf_trace_clip', 50.0) # prevents extreme covariance from dominating
-        self.uncertainty_conf_min = args.get('uncertainty_conf_min', 0.05)
-        self.uncertainty_conf_max = args.get('uncertainty_conf_max', 1.0)
-        self.uncertainty_status_min_conf = args.get('uncertainty_status_min_conf', 0.05) # reliability for non-ok PRM pairs
-        self.uncertainty_attention_bias_strength = args.get('uncertainty_attention_bias_strength', 1.0) # how strongly reliability biases attention
-    
     def backbone_fix(self):
         """
         Fix the parameters of backbone during finetune on timedelay。
@@ -638,41 +618,6 @@ class PointPillarWhere2commOur(nn.Module):
             'mc_mean_sampled_tx_abs_dev': float(np.mean(tx_abs_devs)) if tx_abs_devs else 0.0,
             'mc_mean_sampled_ty_abs_dev': float(np.mean(ty_abs_devs)) if ty_abs_devs else 0.0,
         }
-    
-    def covariance_to_fusion_reliability(self, Sigma_params, stats):
-        """
-        Convert PRM covariance/status into one scalar collaborator reliability.
-
-        Returns:
-            reliability: float in [uncertainty_conf_min, uncertainty_conf_max]
-            cov_trace_raw: float
-            cov_trace_clipped: float
-            uncertainty_score: float
-        """
-        cov_trace_raw = float(np.trace(Sigma_params))
-        cov_trace_raw = max(cov_trace_raw, 0.0)
-
-        cov_trace_clipped = min(cov_trace_raw, self.uncertainty_conf_trace_clip)
-        uncertainty_score = float(np.log1p(cov_trace_clipped))
-
-        status_str = str(stats.get('status', 'unknown'))
-
-        if not self.enable_uncertainty_fusion:
-            reliability = 1.0
-
-        elif status_str != 'ok':
-            reliability = float(self.uncertainty_status_min_conf)
-
-        else:
-            reliability = (1.0 + cov_trace_clipped) ** (-self.uncertainty_conf_alpha)
-            reliability = float(np.clip(
-                reliability,
-                self.uncertainty_conf_min,
-                self.uncertainty_conf_max
-            ))
-
-        return reliability, cov_trace_raw, cov_trace_clipped, uncertainty_score    
-    
     def forward(self, data_dict):
 
         voxel_features = data_dict['processed_lidar']['voxel_features']
@@ -710,9 +655,6 @@ class PointPillarWhere2commOur(nn.Module):
         
         split_spatial_features_2d = self.regroup(batch_dict['spatial_features'], record_len) 
         feature_list = []
-        uncertainty_confidence_list = []
-
-
 
         for i in range(len(communication_masks)):
             mask = communication_masks[i].squeeze(1).to('cpu').numpy()
@@ -730,7 +672,6 @@ class PointPillarWhere2commOur(nn.Module):
             cav_num,mask_h,mask_w = mask.shape
             ego_mask = mask[0]
             feature_list.append(split_spatial_features_2d[i][0].unsqueeze(0))
-            uncertainty_confidence_list.append(1.0)
 
             for j in range(1,cav_num):
                 features_2d = split_spatial_features_2d[i][j]
@@ -743,10 +684,11 @@ class PointPillarWhere2commOur(nn.Module):
                 t_matrix = torch.from_numpy(t_matrix).to(features_2d.device).unsqueeze(0)
                 # ----------------------------------
 
-                # ------ NOTE: UPDATED BLOCK FOR FUSION ARCH CHANGES ------ 
-                status_str = str(stats.get('status', 'unknown'))
-                reliability, cov_trace_raw, cov_trace_clipped, uncertainty_score = self.covariance_to_fusion_reliability(Sigma_params, stats)
-                
+                # ------ NOTE: ADDED BLOCK (LEVEL 2 - UNCERTAINTY WEIGHTING) ------ 
+                cov_trace_raw = float(np.trace(Sigma_params))
+                cov_trace_raw = max(cov_trace_raw, 0.0)
+                cov_trace_clipped = min(cov_trace_raw, self.uncertainty_weight_trace_clip)
+                uncertainty_score = np.log1p(cov_trace_clipped)
 
                 # ------ NOTE: ADDED MONTE CARLO SAMPLING VARIABLES ------
                 mc_warp_applied = False
@@ -791,6 +733,8 @@ class PointPillarWhere2commOur(nn.Module):
                 blur_applied = False
                 blur_kernel_size = 1
                 vertical_blur_decision = 'disabled'
+
+                status_str = str(stats.get('status', 'unknown'))
                 blur_is_allowed = False
 
                 # ------ monte carlo use decision: apply MC warp only for valid, not-skipped, high-uncertainty ok rows ------
@@ -838,11 +782,11 @@ class PointPillarWhere2commOur(nn.Module):
                     mc_mean_sampled_theta_abs_dev = mc_stats['mc_mean_sampled_theta_abs_dev']
                     mc_mean_sampled_tx_abs_dev = mc_stats['mc_mean_sampled_tx_abs_dev']
                     mc_mean_sampled_ty_abs_dev = mc_stats['mc_mean_sampled_ty_abs_dev']
-                
                 else:
                     features_2d = warp_affine_simple(features_2d.unsqueeze(0), t_matrix, (H, W))                
                 # -------------------------------------------------------------
-                
+
+
                 # IGNORE: old continuous weighting (if enabled)
                 if self.enable_uncertainty_weighting:
                     features_2d = features_2d * uncertainty_weight
@@ -918,41 +862,32 @@ class PointPillarWhere2commOur(nn.Module):
                             'cov_trace_clipped': float(cov_trace_clipped),
                             'uncertainty_score': float(uncertainty_score),
                             'uncertainty_weight': float(uncertainty_weight),
-                            #'gate_mode': str(self.uncertainty_gate_mode) if self.enable_uncertainty_gating else 'disabled',
-                            #'gate_threshold': float(self.uncertainty_gate_threshold) if self.enable_uncertainty_gating else None,
-                            #'gate_decision': str(gate_decision),
-                            #'gate_applied_weight': float(gate_applied_weight),
-                            #'gate_skipped': int(gate_skipped),
-                            #'fused_into_feature_list': int(not gate_skipped),
-                            #'status_gate_enabled': int(self.enable_status_based_skip),
-                            #'status_gate_decision': str(status_gate_decision),
-                            #'ok_tail_skip_enabled': int(self.enable_ok_tail_skip),
-                            #'ok_tail_skip_threshold': float(self.ok_tail_skip_threshold) if self.enable_ok_tail_skip else None,
-                            #'blur_enabled': int(self.enable_uncertainty_blur or self.enable_ok_tail_vertical_blur),
-                            #'blur_applied': int(blur_applied),
-                            #'blur_sigma': float(blur_sigma),
-                            #'blur_kernel_size': int(blur_kernel_size),
-                            #'ok_tail_vertical_blur_enabled': int(self.enable_ok_tail_vertical_blur),
-                            #'ok_blur_threshold': float(self.ok_blur_threshold) if self.enable_ok_tail_vertical_blur else None,
-                            #'vertical_blur_decision': str(vertical_blur_decision),
-                            #'vertical_blur_used_ty_only': int(self.vertical_blur_use_ty_only),
-                            #'mc_warp_enabled': int(self.enable_tail_mc_warp),
-                            #'mc_warp_applied': int(mc_warp_applied),
-                            #'mc_trace_threshold': float(self.mc_trace_threshold) if self.enable_tail_mc_warp else None,
-                            #'mc_num_samples': int(self.mc_num_samples) if self.enable_tail_mc_warp else None,
-                            #'mc_use_translation_only': int(self.mc_use_translation_only),
-                            #'mc_mean_sampled_theta_abs_dev': float(mc_mean_sampled_theta_abs_dev),
-                            #'mc_mean_sampled_tx_abs_dev': float(mc_mean_sampled_tx_abs_dev),
-                            #'mc_mean_sampled_ty_abs_dev': float(mc_mean_sampled_ty_abs_dev),
-                            'uncertainty_fusion_enabled': int(self.enable_uncertainty_fusion),
-                            'uncertainty_fusion_mode': str(self.uncertainty_fusion_mode),
-                            'fusion_reliability': float(reliability),
-                            'uncertainty_conf_alpha': float(self.uncertainty_conf_alpha),
-                            'uncertainty_conf_trace_clip': float(self.uncertainty_conf_trace_clip),
-                            'uncertainty_conf_min': float(self.uncertainty_conf_min),
-                            'uncertainty_conf_max': float(self.uncertainty_conf_max),
-                            'uncertainty_status_min_conf': float(self.uncertainty_status_min_conf),
-                            'uncertainty_attention_bias_strength': float(self.uncertainty_attention_bias_strength),
+                            'gate_mode': str(self.uncertainty_gate_mode) if self.enable_uncertainty_gating else 'disabled',
+                            'gate_threshold': float(self.uncertainty_gate_threshold) if self.enable_uncertainty_gating else None,
+                            'gate_decision': str(gate_decision),
+                            'gate_applied_weight': float(gate_applied_weight),
+                            'gate_skipped': int(gate_skipped),
+                            'fused_into_feature_list': int(not gate_skipped),
+                            'status_gate_enabled': int(self.enable_status_based_skip),
+                            'status_gate_decision': str(status_gate_decision),
+                            'ok_tail_skip_enabled': int(self.enable_ok_tail_skip),
+                            'ok_tail_skip_threshold': float(self.ok_tail_skip_threshold) if self.enable_ok_tail_skip else None,
+                            'blur_enabled': int(self.enable_uncertainty_blur or self.enable_ok_tail_vertical_blur),
+                            'blur_applied': int(blur_applied),
+                            'blur_sigma': float(blur_sigma),
+                            'blur_kernel_size': int(blur_kernel_size),
+                            'ok_tail_vertical_blur_enabled': int(self.enable_ok_tail_vertical_blur),
+                            'ok_blur_threshold': float(self.ok_blur_threshold) if self.enable_ok_tail_vertical_blur else None,
+                            'vertical_blur_decision': str(vertical_blur_decision),
+                            'vertical_blur_used_ty_only': int(self.vertical_blur_use_ty_only),
+                            'mc_warp_enabled': int(self.enable_tail_mc_warp),
+                            'mc_warp_applied': int(mc_warp_applied),
+                            'mc_trace_threshold': float(self.mc_trace_threshold) if self.enable_tail_mc_warp else None,
+                            'mc_num_samples': int(self.mc_num_samples) if self.enable_tail_mc_warp else None,
+                            'mc_use_translation_only': int(self.mc_use_translation_only),
+                            'mc_mean_sampled_theta_abs_dev': float(mc_mean_sampled_theta_abs_dev),
+                            'mc_mean_sampled_tx_abs_dev': float(mc_mean_sampled_tx_abs_dev),
+                            'mc_mean_sampled_ty_abs_dev': float(mc_mean_sampled_ty_abs_dev),
                             'cov_condition_number': float(stats['cov_condition_number']) if stats.get('cov_condition_number') is not None else None,
                             'sigma2_hat': float(stats['sigma2_hat']) if stats.get('sigma2_hat') is not None else None,
                             'num_centroids0_raw': int(stats.get('num_centroids0_raw', 0)),
@@ -975,7 +910,7 @@ class PointPillarWhere2commOur(nn.Module):
 
                     self._cov_log_pair_counter += 1
                 # -------------------------------------------------------------
-
+  
                 # -------------------------------------------------------------
                 # 3) Now apply skip logic AFTER logging
                 if gate_skipped:
@@ -983,24 +918,14 @@ class PointPillarWhere2commOur(nn.Module):
                 # -------------------------------------------------------------
 
                 feature_list.append(features_2d)
-                uncertainty_confidence_list.append(reliability)
+
 
         batch_dict['spatial_features'] = torch.vstack(feature_list)
-        if self.enable_uncertainty_fusion:
-            batch_dict['uncertainty_confidence'] = torch.tensor(
-                uncertainty_confidence_list,
-                dtype=torch.float32,
-                device=batch_dict['spatial_features'].device
-            )
-        else:
-            batch_dict['uncertainty_confidence'] = None
-
+        
         if self.multi_scale:
-            fused_feature = self.fusion_net(batch_dict['spatial_features'],
+            fused_feature= self.fusion_net(batch_dict['spatial_features'],
                                             record_len,
-                                            self.backbone,
-                                            uncertainty_confidence=batch_dict['uncertainty_confidence'],
-                                            uncertainty_attention_bias_strength=self.uncertainty_attention_bias_strength)
+                                            self.backbone)
             # downsample feature to reduce memory
             if self.shrink_flag:
                 fused_feature = self.shrink_conv(fused_feature)

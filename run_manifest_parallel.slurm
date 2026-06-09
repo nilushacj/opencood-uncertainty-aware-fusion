@@ -19,7 +19,7 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
-MANIFEST="opencood/pretrained/feaco/generated_manifest.csv"
+MANIFEST="opencood/pretrained/feaco/generated_manifest_fusion.csv"
 
 # python opencood/tools/inference_manifest_parallel.py \
 #     --manifest "${MANIFEST}" \
