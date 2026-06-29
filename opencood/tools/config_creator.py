@@ -11,7 +11,7 @@ import yaml
 # 1. Update these paths
 # ---------------------------------------------------------------------
 BASE_MODEL_DIR = Path("opencood/pretrained/feaco")
-BASE_CONFIG_PATH = BASE_MODEL_DIR / "config_monte_carlo.yaml"
+BASE_CONFIG_PATH = BASE_MODEL_DIR / "config_fusion.yaml"
 OUTPUT_ROOT_DIR = BASE_MODEL_DIR
 
 CONFIG_FILENAME = "config.yaml"
@@ -217,6 +217,18 @@ def apply_run_config(base_cfg, run):
     set_existing(cfg, ["model", "args", "mc_translation_clip"], run["mc_translation_clip"])
 
     # --------------------------------------------------
+    # Uncertainty fusion settings
+    # --------------------------------------------------
+    set_existing(cfg, ["model", "args", "enable_uncertainty_fusion"], run["enable_uncertainty_fusion"])
+    set_existing(cfg, ["model", "args", "uncertainty_fusion_mode"], run["uncertainty_fusion_mode"])
+    set_existing(cfg, ["model", "args", "uncertainty_conf_alpha"], run["uncertainty_conf_alpha"])
+    set_existing(cfg, ["model", "args", "uncertainty_conf_trace_clip"], run["uncertainty_conf_trace_clip"])
+    set_existing(cfg, ["model", "args", "uncertainty_conf_min"], run["uncertainty_conf_min"])
+    set_existing(cfg, ["model", "args", "uncertainty_conf_max"], run["uncertainty_conf_max"])
+    set_existing(cfg, ["model", "args", "uncertainty_status_min_conf"], run["uncertainty_status_min_conf"])
+    set_existing(cfg, ["model", "args", "uncertainty_attention_bias_strength"], run["uncertainty_attention_bias_strength"])
+    
+    # --------------------------------------------------
     # Wild/noise settings
     # --------------------------------------------------
     set_existing(cfg, ["wild_setting", "loc_err"], run["loc_err"])
@@ -245,7 +257,7 @@ def build_runs():
         ("pos_0p2_rot_8p0" , 0.2, 8.0, True),
         ("pos_0p2_rot_10p0", 0.2, 10.0, True),
         ("pos_0p2_rot_14p0", 0.2, 14.0, True),
-        ("pos_0p2_rot_18p0", 0.2, 18.0, True),
+        # ("pos_0p2_rot_18p0", 0.2, 18.0, True),
 
         ("pos_0p5_rot_1p0" , 0.5, 1.0, True),
         ("pos_0p5_rot_2p0" , 0.5, 2.0, True),
@@ -254,7 +266,7 @@ def build_runs():
         ("pos_0p5_rot_8p0" , 0.5, 8.0, True),
         ("pos_0p5_rot_10p0", 0.5, 10.0, True),
         ("pos_0p5_rot_14p0", 0.5, 14.0, True),
-        ("pos_0p5_rot_18p0", 0.5, 18.0, True),
+        # ("pos_0p5_rot_18p0", 0.5, 18.0, True),
 
         ("pos_1p0_rot_1p0" , 1.0, 1.0, True),
         ("pos_1p0_rot_2p0" , 1.0, 2.0, True),
@@ -263,8 +275,8 @@ def build_runs():
         ("pos_1p0_rot_8p0" , 1.0, 8.0, True),
         ("pos_1p0_rot_10p0", 1.0, 10.0, True),
         ("pos_1p0_rot_14p0", 1.0, 14.0, True),
-        ("pos_1p0_rot_18p0", 1.0, 18.0, True),
-        
+        # ("pos_1p0_rot_18p0", 1.0, 18.0, True),
+    
         ("pos_1p5_rot_1p0" , 1.5, 1.0, True),
         ("pos_1p5_rot_2p0" , 1.5, 2.0, True),
         ("pos_1p5_rot_4p0" , 1.5, 4.0, True),
@@ -272,7 +284,7 @@ def build_runs():
         ("pos_1p5_rot_8p0" , 1.5, 8.0, True),
         ("pos_1p5_rot_10p0", 1.5, 10.0, True),
         ("pos_1p5_rot_14p0", 1.5, 14.0, True),
-        ("pos_1p5_rot_18p0", 1.5, 18.0, True),
+        # ("pos_1p5_rot_18p0", 1.5, 18.0, True),
 
         ("pos_2p0_rot_1p0" , 2.0, 1.0, True),
         ("pos_2p0_rot_2p0" , 2.0, 2.0, True),
@@ -281,32 +293,16 @@ def build_runs():
         ("pos_2p0_rot_8p0" , 2.0, 8.0,  True),
         ("pos_2p0_rot_10p0", 2.0, 10.0, True),
         ("pos_2p0_rot_14p0", 2.0, 14.0, True),
-        ("pos_2p0_rot_18p0", 2.0, 18.0, True),
+        #("pos_2p0_rot_18p0", 2.0, 18.0, True),
 
-        ("pos_3p0_rot_1p0",  3.0, 1.0, True),
-        ("pos_3p0_rot_2p0",  3.0, 2.0, True),
-        ("pos_3p0_rot_4p0",  3.0, 4.0, True),
-        ("pos_3p0_rot_6p0",  3.0, 6.0, True),
-        ("pos_3p0_rot_8p0" , 3.0, 8.0, True),
-        ("pos_3p0_rot_10p0", 3.0, 10.0, True),
-        ("pos_3p0_rot_14p0", 3.0, 14.0, True),
-        ("pos_3p0_rot_18p0", 3.0, 18.0, True),
-
-        ## ("pos_4p5_rot_1p0", 4.5, 1.0, True),
-        ## ("pos_4p5_rot_2p0", 4.5, 2.0, True),
-        ## ("pos_4p5_rot_4p0", 4.5, 4.0, True),
-        ## ("pos_4p5_rot_6p0", 4.5, 6.0, True),
-
-        ## ("pos_6p5_rot_1p0", 6.5, 1.0, True),
-        ## ("pos_6p5_rot_2p0", 6.5, 2.0, True),
-        ## ("pos_6p5_rot_4p0", 6.5, 4.0, True),
-        ## ("pos_6p5_rot_6p0", 6.5, 6.0, True),
-
-        ## ("pos_9p0_rot_1p0", 9.0, 1.0, True),
-        ## ("pos_9p0_rot_2p0", 9.0, 2.0, True),
-        ## ("pos_9p0_rot_4p0", 9.0, 4.0, True),
-        ## ("pos_9p0_rot_6p0", 9.0, 6.0, True),
-
+        # ("pos_3p0_rot_1p0",  3.0, 1.0, True),
+        # ("pos_3p0_rot_2p0",  3.0, 2.0, True),
+        # ("pos_3p0_rot_4p0",  3.0, 4.0, True),
+        # ("pos_3p0_rot_6p0",  3.0, 6.0, True),
+        # ("pos_3p0_rot_8p0" , 3.0, 8.0, True),
+        # ("pos_3p0_rot_10p0", 3.0, 10.0, True),
+        # ("pos_3p0_rot_14p0", 3.0, 14.0, True),
+        # ("pos_3p0_rot_18p0", 3.0, 18.0, True),
 
         # Pure position noise
         ("pos_only_0p2", 0.2, 0.0, True),
@@ -314,10 +310,7 @@ def build_runs():
         ("pos_only_1p0", 1.0, 0.0, True),
         ("pos_only_1p5", 1.5, 0.0, True),
         ("pos_only_2p0", 2.0, 0.0, True),
-        ("pos_only_3p0", 3.0, 0.0, True),
-        ## ("pos_only_4p5", 4.5, 0.0, True),
-        ## ("pos_only_6p5", 6.5, 0.0, True),
-        ## ("pos_only_9p0", 9.0, 0.0, True),
+        # ("pos_only_3p0", 3.0, 0.0, True),
 
         # Pure rotation/yaw noise
         ("rot_only_1p0", 0.0, 1.0, True),
@@ -325,11 +318,9 @@ def build_runs():
         ("rot_only_4p0", 0.0, 4.0, True),
         ("rot_only_6p0", 0.0, 6.0, True),
         ("rot_only_8p0", 0.0, 8.0, True),
-
-        # NEW-UPDATED VALS (RISTO MEETING)
         ("rot_only_10p0", 0.0, 10.0, True),
         ("rot_only_14p0", 0.0, 14.0, True),
-        ("rot_only_18p0", 0.0, 18.0, True),
+        # ("rot_only_18p0", 0.0, 18.0, True),
 
     ]
 
@@ -355,8 +346,8 @@ def build_runs():
         "enable_uncertainty_blur": False,
         "enable_ok_tail_vertical_blur": False,
         "ok_blur_threshold": 9.800544452667232,
-        "vertical_blur_use_ty_only": True,
-        "blur_use_only_ok": True,
+        "vertical_blur_use_ty_only": False,
+        "blur_use_only_ok": False,
         "blur_sigma_scale": 0.05,
         "blur_sigma_min": 0.0,
         "blur_sigma_max": 0.75,
@@ -366,25 +357,34 @@ def build_runs():
         "mc_trace_threshold": 9.800544452667232,
         "mc_num_samples": 3,
         "mc_random_seed": 123,
-        "mc_use_translation_only": True,
+        "mc_use_translation_only": False,
         "mc_theta_clip": 0.15,
         "mc_translation_clip": 3.0,
+
+        "enable_uncertainty_fusion": False,
+        "uncertainty_fusion_mode": "attention_bias",
+        "uncertainty_conf_alpha": 0.10,
+        "uncertainty_conf_trace_clip": 50.0,
+        "uncertainty_conf_min": 0.05,
+        "uncertainty_conf_max": 1.0,
+        "uncertainty_status_min_conf": 0.05, 
+        "uncertainty_attention_bias_strength": 1.0,
     }
 
+    """
+        alpha_values = [0.20, 0.30, 0.80]
+        bias_values = [1.5, 2.5, 3.5, 8.5]
+    """
     methods = [
         {
             "method_name": "feaco_baseline",
             "core_method": "point_pillar_where2comm_feaco",
         },
-        # {
-        #     "method_name": "level2_only",
-        #     "core_method": "point_pillar_where2comm_our",
-        # },
-        # {
-        #     "method_name": "level2_status_skip",
-        #     "core_method": "point_pillar_where2comm_our",
-        #     "enable_status_based_skip": True,
-        # },
+        {
+            "method_name": "level2_status_skip",
+            "core_method": "point_pillar_where2comm_our",
+            "enable_status_based_skip": True,
+        },
         {
             "method_name": "level2_status_skip_vertical_blur_bss0p05",
             "core_method": "point_pillar_where2comm_our",
@@ -395,35 +395,201 @@ def build_runs():
             "blur_sigma_scale": 0.05,
         },        
         # {
-        #     "method_name": "mc_status_skip_transonly_k3",
+        #     "method_name": "uncertainty_fusion_attbias_a0p10_b1p0",
         #     "core_method": "point_pillar_where2comm_our",
-        #     "enable_status_based_skip": True,
+        #     "enable_status_based_skip": False,
         #     "enable_ok_tail_vertical_blur": False,
-        #     "enable_uncertainty_blur": False,
-
-        #     "enable_tail_mc_warp": True,
-        #     "mc_trace_threshold": 9.800544452667232,
-        #     "mc_num_samples": 3,
-        #     "mc_random_seed": 123,
-        #     "mc_use_translation_only": True,
-        #     "mc_theta_clip": 0.15,
-        #     "mc_translation_clip": 3.0,
-        # },
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.10, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 1.0,
+        # },    
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p20_b1p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.20, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 1.5,
+        # },      
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p20_b2p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.20, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 2.5,
+        # },  
         {
-            "method_name": "mc_status_skip_full_k3",
+            "method_name": "uncertainty_fusion_attbias_a0p20_b3p5",
             "core_method": "point_pillar_where2comm_our",
-            "enable_status_based_skip": True,
+            "enable_status_based_skip": False,
             "enable_ok_tail_vertical_blur": False,
-            "enable_uncertainty_blur": False,
+            "vertical_blur_use_ty_only": False,
+            "blur_use_only_ok": False,
+            "enable_uncertainty_fusion": True,
+            "uncertainty_conf_alpha": 0.20, 
+            "uncertainty_conf_trace_clip": 50.0,
+            "uncertainty_conf_min": 0.05,
+            "uncertainty_conf_max": 1.0,
+            "uncertainty_status_min_conf": 0.05, 
+            "uncertainty_attention_bias_strength": 3.5,
+        }, 
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p20_b8p0",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.20, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 8.0,
+        # }, 
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p30_b1p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.30, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 1.5,
+        # },      
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p30_b2p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.30, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 2.5,
+        # },  
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p30_b3p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.30, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 3.5,
+        # }, 
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p30_b8p0",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.30, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 8.0,
+        # }, 
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p80_b1p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.80, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 1.5,
+        # },      
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p80_b2p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.80, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 2.5,
+        # },  
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p80_b3p5",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.80, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 3.5,
+        # }, 
+        # {
+        #     "method_name": "uncertainty_fusion_attbias_a0p80_b8p0",
+        #     "core_method": "point_pillar_where2comm_our",
+        #     "enable_status_based_skip": False,
+        #     "enable_ok_tail_vertical_blur": False,
+        #     "vertical_blur_use_ty_only": False,
+        #     "blur_use_only_ok": False,
+        #     "enable_uncertainty_fusion": True,
+        #     "uncertainty_conf_alpha": 0.80, 
+        #     "uncertainty_conf_trace_clip": 50.0,
+        #     "uncertainty_conf_min": 0.05,
+        #     "uncertainty_conf_max": 1.0,
+        #     "uncertainty_status_min_conf": 0.05, 
+        #     "uncertainty_attention_bias_strength": 8.0,
+        # }, 
 
-            "enable_tail_mc_warp": True,
-            "mc_trace_threshold": 9.800544452667232,
-            "mc_num_samples": 3,
-            "mc_random_seed": 123,
-            "mc_use_translation_only": False,
-            "mc_theta_clip": 0.15,
-            "mc_translation_clip": 3.0,
-        },
     ]
 
     runs = []
@@ -505,19 +671,27 @@ def main():
                 "enable_ok_tail_vertical_blur": run["enable_ok_tail_vertical_blur"],
                 "vertical_blur_use_ty_only": run["vertical_blur_use_ty_only"],
                 "blur_sigma_scale": run["blur_sigma_scale"],
-                "enable_tail_mc_warp": run["enable_tail_mc_warp"],
-                "mc_trace_threshold": run["mc_trace_threshold"],
-                "mc_num_samples": run["mc_num_samples"],
-                "mc_random_seed": run["mc_random_seed"],
-                "mc_use_translation_only": run["mc_use_translation_only"],
-                "mc_theta_clip": run["mc_theta_clip"],
-                "mc_translation_clip": run["mc_translation_clip"],
+                # "enable_tail_mc_warp": run["enable_tail_mc_warp"],
+                # "mc_trace_threshold": run["mc_trace_threshold"],
+                # "mc_num_samples": run["mc_num_samples"],
+                # "mc_random_seed": run["mc_random_seed"],
+                # "mc_use_translation_only": run["mc_use_translation_only"],
+                # "mc_theta_clip": run["mc_theta_clip"],
+                # "mc_translation_clip": run["mc_translation_clip"],
+                "enable_uncertainty_fusion": run["enable_uncertainty_fusion"],
+                "uncertainty_fusion_mode": run["uncertainty_fusion_mode"],
+                "uncertainty_conf_alpha": run["uncertainty_conf_alpha"],
+                "uncertainty_conf_trace_clip": run["uncertainty_conf_trace_clip"],
+                "uncertainty_conf_min": run["uncertainty_conf_min"],
+                "uncertainty_conf_max": run["uncertainty_conf_max"],
+                "uncertainty_status_min_conf": run["uncertainty_status_min_conf"],
+                "uncertainty_attention_bias_strength": run["uncertainty_attention_bias_strength"],
             }
         )
 
         print(f"Wrote: {config_path}")
 
-    manifest_path = OUTPUT_ROOT_DIR / f"{GENERATED_PREFIX}manifest.csv"
+    manifest_path = OUTPUT_ROOT_DIR / f"{GENERATED_PREFIX}manifest_fusion_test_split.csv"
 
     with open(manifest_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(manifest_rows[0].keys()))
@@ -525,7 +699,7 @@ def main():
         writer.writerows(manifest_rows)
 
     print("\nDone.")
-    print(f"Manifest written to: {manifest_path}")
+    print(f"Manifest written to: {manifest_path}") # path: opencood/pretrained/feaco/
 
 
 if __name__ == "__main__":

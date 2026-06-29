@@ -8,7 +8,7 @@ import sys
 # -----------------------------
 input_dir = Path("debug_prm/cov_logs")
 generated_parent_dir = Path("opencood/pretrained/feaco")  # parent directory containing generated_* folders
-output_csv = "summary_metrics_with_ap_18_05_2026.csv"
+output_csv = "summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv"
 
 
 # -----------------------------

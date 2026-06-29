@@ -199,10 +199,25 @@ Usage:
  
  python summarize_ap_summary.py ./summary_metrics_with_ap_28_04_2026.csv --output_csv noise_level_summary_baseline_to_cov_only_robustness_gains_28_04_2026.csv --baseline_method feaco_baseline --ours_method level2_only
 
+ ----------------
+ python summarize_ap_summary.py ./summary_metrics_with_ap_08_06_2026.csv --output_csv noise_level_summary_baseline_to_uncertainty_fusion__08_06_2026.csv --baseline_method feaco_baseline --ours_method uncertainty_fusion_attbias_a0p10_b1p0
+ python summarize_ap_summary.py ./summary_metrics_with_ap_08_06_2026.csv --output_csv noise_level_summary_level2_status_skip_vertical_blur_bss0p05_to_uncertainty_fusion__08_06_2026.csv --baseline_method level2_status_skip_vertical_blur_bss0p05 --ours_method uncertainty_fusion_attbias_a0p10_b1p0
+ ----------------
 
  ----------------
- python summarize_ap_summary.py ./summary_metrics_with_ap_18_05_2026.csv --output_csv noise_level_summary_baseline_to_prob_warp_full_robustness_gains_18_05_2026.csv --baseline_method feaco_baseline --ours_method mc_status_skip_full_k3
- python summarize_ap_summary.py ./summary_metrics_with_ap_18_05_2026.csv --output_csv noise_level_summary_level2_skip_and_blur_to_prob_warp_full_robustness_gains_18_05_2026.csv --baseline_method level2_status_skip_vertical_blur_bss0p05 --ours_method mc_status_skip_full_k3
- python summarize_ap_summary.py ./summary_metrics_with_ap_18_05_2026.csv --output_csv noise_level_summary_prob_warp_transonly_to_prob_warp_full_robustness_gains_18_05_2026.csv --baseline_method mc_status_skip_transonly_k3 --ours_method mc_status_skip_full_k3
+ python summarize_ap_summary.py ./summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv --output_csv noise_level_summary_baseline_to_uncertainty_fusion__29_06_2026.csv --baseline_method feaco_baseline --ours_method uncertainty_fusion_attbias_a0p20_b3p5
+ python summarize_ap_summary.py ./summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv --output_csv noise_level_summary_level2_status_skip_to_uncertainty_fusion__29_06_2026.csv --baseline_method level2_status_skip --ours_method uncertainty_fusion_attbias_a0p20_b3p5
+ python summarize_ap_summary.py ./summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv --output_csv noise_level_summary_level2_status_skip_to_level2_status_skip_vertical_blur_bss0p05__29_06_2026.csv --baseline_method level2_status_skip --ours_method level2_status_skip_vertical_blur_bss0p05
+ python summarize_ap_summary.py ./summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv --output_csv noise_level_summary_baseline_to_level2_status_skip__29_06_2026.csv --baseline_method feaco_baseline --ours_method level2_status_skip
+ python summarize_ap_summary.py ./summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv --output_csv noise_level_summary_baseline_to_level2_status_skip_vertical_blur_bss0p05__29_06_2026.csv --baseline_method feaco_baseline --ours_method level2_status_skip_vertical_blur_bss0p05
+ python summarize_ap_summary.py ./summary_metrics_with_ap_uncertainty_fusion_29_06_2026.csv --output_csv noise_level_summary_level2_status_skip_vertical_blur_bss0p05__29_06_2026_to_uncertainty_fusion.csv --baseline_method level2_status_skip_vertical_blur_bss0p05 --ours_method uncertainty_fusion_attbias_a0p20_b3p5
+
+
  ----------------
+
+
+
+
+
+
 """

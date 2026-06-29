@@ -1,8 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=feaco_eval_parallel
-#SBATCH --time=20:00:00
-#SBATCH --gpus=v100:1 
-#SBATCH --mem=200G
+#SBATCH --time=60:00:00
+#SBATCH --partition=gpu-v100-32g,gpu-a100-80g
+#SBATCH --gpus=1 
+#SBATCH --gres=min-vram:32g
+#SBATCH --mem=350G
 #SBATCH --cpus-per-task=8
 #SBATCH --output=slurm_logs/%x_%j.out
 #SBATCH --error=slurm_logs/%x_%j.err
@@ -19,7 +21,7 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
-MANIFEST="opencood/pretrained/feaco/generated_manifest_fusion.csv"
+MANIFEST="opencood/pretrained/feaco/generated_manifest_fusion_test_split.csv"
 
 # python opencood/tools/inference_manifest_parallel.py \
 #     --manifest "${MANIFEST}" \

@@ -222,7 +222,7 @@ train_params:
   eval_freq: 2
   max_cav: 5
   save_freq: 2
-validate_dir: /scratch/eng/t212-amlab/scaledown_nj/bev_perception/datasets/V2XSet/validate
+validate_dir: /scratch/eng/t212-amlab/scaledown_nj/bev_perception/datasets/V2XSet/test #/scratch/eng/t212-amlab/scaledown_nj/bev_perception/datasets/V2XSet/validate
 wild_setting:
   async: false
   async_mode: sim
